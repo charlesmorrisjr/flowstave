@@ -1,0 +1,17 @@
+{
+  "name": "flowstave-server",
+  "version": "1.0.0",
+  "description": "Sight-reading trainer: reads a MIDI keyboard on this computer and serves the app to an iPad or any browser on the local network.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@julusian/midi": "^3.9.0",
+    "ws": "^8.23.0"
+  },
+  "license": "MIT"
+}

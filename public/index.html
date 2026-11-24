@@ -2,8 +2,8 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Flowstave sight-reading</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black"><meta name="apple-mobile-web-app-title" content="Flowstave"><meta name="theme-color" content="#111113">
 <style>
 /* VOICE: a calm practice instrument; nothing competes with the music
    IDEA: the music rest of a digital piano holding an endless engraved sheet
@@ -11,8 +11,8 @@
    COLOUR and TYPE: lacquer black housing, white paper, cursor blue, grade green/red; Instrument Sans
    LAYOUT: control strip, paper with two systems, keyboard on the housing below */
 :root{color-scheme:dark;--bg:#111113;--panel:#1a1a1e;--line:#2d2d34;--ink:#f3f3f5;--mute:#a0a0ab;--paper:#fff;--engr:#17171b;--good:#169b47;--bad:#e0342b;--cur:#2f6bff}
-*{box-sizing:border-box;min-width:0}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:clip}
+*{box-sizing:border-box;min-width:0}[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;overflow-x:clip;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 button,select{font:inherit;color:inherit}
 .wrap{max-width:1240px;margin:0 auto;padding:14px max(2vw,10px) 24px}
 .bar{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between;padding:6px 2px 12px}
@@ -64,6 +64,22 @@ button,select{font:inherit;color:inherit}
 @media(max-width:600px){.lvl b{font-size:19px;min-width:76px}.stat b{font-size:22px}.status{margin-left:0}.kb{height:96px}}
 </style></head><body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs id="defs"></defs></svg>
+<script>
+(function(){
+  function report(msg){
+    try{var el=document.getElementById('midiStat');if(el){el.textContent='Error: '+msg;el.style.color='#ff8a80'}}catch(e){}
+    try{var x=new XMLHttpRequest();x.open('POST','/client-log',true);x.setRequestHeader('Content-Type','text/plain');x.send(String(msg).slice(0,1500))}catch(e){}
+  }
+  window.__fsReport=report;
+  // Ignore errors that aren't from this page's own code: browser extensions and built-in features
+  // (e.g. Brave's wallet) inject scripts that report as "Script error." at line 0, or as inline code at line 1.
+  var seen={};
+  function ours(m,src,line){if(!line||line<=1)return false;if(src&&src.split('#')[0]!==location.href.split('#')[0])return false;if(/ethereum|web3|solana/i.test(m))return false;return true}
+  window.onerror=function(m,src,line,col,err){if(!ours(String(m),src,line))return;var k=m+line;if(seen[k])return;seen[k]=1;report(m+' (line '+line+':'+col+')'+(err&&err.stack?' | '+String(err.stack).split('\n').slice(0,3).join(' / '):''));};
+  window.addEventListener('unhandledrejection',function(e){var r=String(e.reason&&e.reason.message||e.reason);if(/ethereum|web3|solana|extension/i.test(r))return;report('Unhandled promise rejection: '+(e.reason&&e.reason.message||e.reason))});
+  window.addEventListener('load',function(){setTimeout(function(){if(!window.__fsStarted)report('The app script did not start. Browser: '+navigator.userAgent)},1500)});
+})();
+</script>
 <div class="wrap">
  <div class="bar">
   <div class="grp">
@@ -91,13 +107,14 @@ button,select{font:inherit;color:inherit}
   <label><input type="checkbox" id="oSound"> Sound for on-screen and computer keys</label>
   <label><input type="checkbox" id="oMidiSound"> Sound for MIDI keyboard</label>
   <label>Timing <select id="oTol"><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="strict">Strict</option></select></label>
-  <div class="status"><span id="midiStat">Looking for MIDI…</span><button class="btn" id="midiBtn" style="height:34px;padding:0 12px">Connect MIDI</button></div>
+  <label id="wakeBox"><input type="checkbox" id="oWake"> Keep screen awake</label><span id="wakeTip" hidden>Tip: set the iPad's Auto-Lock to Never while you practise.</span>
+  <div class="status"><span id="midiStat">Connecting to the Flowstave server…</span></div>
  </div>
  <div class="kb" id="kb"></div>
  <div class="hint" id="hint"></div>
 </div>
 <script>
-{
+(function(){'use strict'; // function scope (not a bare block) so every browser resolves names the same way
 const G={"gClef":{"d":"M420 -206l-58 329c-59 -14 -104 -63 -104 -124c0 -49 22 -75 61 -99c12 -8 22 -13 22 -22s-9 -13 -17 -13c-80 0 -135 96 -135 166c0 94 62 190 153 217c-7 41 -14 88 -23 142c-15 -15 -31 -29 -48 -44c-88 -76 -174 -185 -174 -307c0 -151 122 -251 265 -251 c19 0 38 2 58 6zM332 822c-8 -31 -11 -65 -11 -102c0 -42 5 -81 11 -121c69 68 146 146 146 250c0 69 -24 118 -39 118c-52 0 -98 -105 -107 -145zM562 -21c0 89 -65 150 -155 150c7 -44 34 -203 55 -323c71 29 100 102 100 173zM122 -513c0 66 45 123 115 123 c75 0 116 -57 116 -111c0 -64 -47 -104 -94 -111c-3 -1 -5 -2 -5 -4c0 -1 2 -2 3 -3c2 0 23 -5 47 -5c101 0 154 55 154 159c0 53 -11 123 -30 219c-23 -4 -50 -7 -79 -7c-186 0 -349 147 -349 334c0 200 126 321 217 406c21 17 73 70 74 71c-17 112 -22 161 -22 215 c0 84 18 212 82 288c33 39 64 51 71 51c18 0 47 -35 71 -86c16 -36 44 -110 44 -201c0 -159 -73 -284 -179 -395c9 -56 19 -115 29 -175c146 0 253 -102 253 -253c0 -103 -73 -205 -171 -237c6 -39 12 -69 15 -89c10 -57 16 -102 16 -141c0 -63 -14 -129 -68 -167 c-36 -22 -77 -34 -124 -34c-135 0 -186 87 -186 153z","bb":[0.0,-666.0,640.0,1778.0]},"fClef":{"d":"M568 124c0 28 22 51 48 51s48 -23 48 -51s-22 -50 -48 -50s-48 22 -48 50zM254 251c180 0 274 -112 274 -286c0 -184 -158 -362 -298 -463c-91 -71 -205 -118 -206 -118s-4 -1 -5 -1c-6 0 -15 2 -18 12c0 2 -1 3 -1 5c0 12 12 19 12 19c1 0 99 45 203 140 c98 88 181 275 181 405c0 168 -50 250 -152 250c-35 0 -67 -6 -92 -20c-39 -21 -69 -65 -76 -109c8 7 25 17 35 21c9 3 20 5 32 5c56 0 106 -47 106 -104c0 -66 -50 -109 -114 -109c-74 0 -116 54 -116 127s38 139 97 182c1 0 62 44 138 44zM568 -123c0 28 22 51 48 51 s48 -23 48 -51s-22 -51 -48 -51s-48 23 -48 51z","bb":[0.0,-617.0,664.0,868.0]},"nhW":{"d":"M195 -102c41 0 75 8 75 57c0 25 -18 89 -32 116s-32 33 -60 33c-15 0 -31 -2 -43 -6c-24 -8 -34 -24 -32 -51c1 -27 19 -91 32 -116s32 -33 60 -33zM187 136c138 0 186 -70 186 -135s-48 -135 -186 -135s-187 70 -187 135s49 135 187 135z","bb":[0.0,-134.0,373.0,270.0]},"nhH":{"d":"M75 -86c46 0 215 85 215 135c0 22 -16 36 -40 36c-47 0 -215 -86 -215 -135c0 -9 7 -36 40 -36zM213 132c62 0 112 -33 112 -92c0 -88 -109 -173 -213 -173c-81 0 -112 48 -112 91c0 93 116 174 213 174z","bb":[0.0,-133.0,325.0,265.0]},"nhB":{"d":"M0 -42c0 92 116 174 213 174c62 0 112 -33 112 -92c0 -88 -109 -173 -213 -173c-81 0 -112 48 -112 91z","bb":[0.0,-133.0,325.0,265.0]},"f8u":{"d":"M0 -227v226c0 7 6 13 13 13c6 0 11 -4 12 -8c0 0 9 -36 10 -39c2 -4 19 -61 56 -118c27 -42 122 -165 119 -165c0 0 74 -95 79 -224c0 -91 -17 -184 -62 -264c-4 -7 -9 -11 -16 -11c-6 0 -10 4 -10 10c-1 4 1 9 3 15c26 72 45 146 45 218c0 83 -29 126 -47 157 c-65 111 -151 165 -194 179c-7 3 -8 8 -8 11z","bb":[0.0,-817.0,289.0,829.0]},"f8d":{"d":"M0 1v226c0 3 1 8 8 11c42 14 147 68 212 179c18 31 47 74 47 157c0 72 -16 125 -56 218c-2 4 -3 9 -3 12c0 6 2 10 7 12c1 1 3 1 5 1c6 0 12 -4 15 -11c53 -97 74 -173 74 -264c0 -88 -30 -154 -79 -224c-50 -70 -110 -117 -149 -182c-36 -59 -45 -97 -46 -101 c-1 -3 -10 -38 -10 -39c-1 -4 -7 -8 -12 -8c-7 0 -13 6 -13 13z","bb":[0.0,-12.0,309.0,829.0]},"f16u":{"d":"M209 -473c8 -11 17 -24 25 -40c1 10 2 20 2 30c0 38 -9 78 -48 129c-36 47 -101 116 -152 116c1 -8 2 -15 3 -20c7 -26 25 -60 64 -99c49 -49 79 -81 106 -116zM0 -381v381c0 7 3 12 15 12c11 0 12 -5 14 -12c0 0 28 -103 66 -158s89 -107 136 -169 c34 -45 48 -92 48 -144c0 -49 -9 -86 -19 -123c3 -21 5 -45 5 -74c0 -56 -26 -110 -44 -138c-4 -6 -8 -14 -15 -14c-2 0 -3 0 -5 1c-5 3 -7 7 -7 11c0 5 3 11 4 16c15 40 22 91 22 115c1 6 1 11 1 17c0 34 -8 70 -42 121c-60 89 -138 139 -164 148c-7 3 -15 7 -15 10z","bb":[0.0,-820.0,279.0,832.0]},"f16d":{"d":"M37 240c146 39 226 114 230 268c-27 -48 -96 -104 -154 -149c-59 -45 -67 -82 -74 -107c0 -3 -1 -7 -2 -12zM0 -10v398c0 2 8 24 15 27c77 17 223 106 244 190l1 3c4 12 5 25 5 38c0 67 -26 101 -61 138c-4 4 -10 8 -10 11c0 5 13 8 17 8c6 0 12 -2 16 -5 c33 -26 79 -81 79 -160c0 -26 -2 -44 -6 -57c6 -37 9 -74 9 -107c0 -185 -140 -262 -193 -313c-40 -38 -71 -68 -86 -171c-2 -8 -7 -16 -15 -16s-15 8 -15 16z","bb":[0.0,-26.0,309.0,829.0]},"flat":{"d":"M132 40v11c0 21 -3 55 -39 55c-40 0 -55 -29 -57 -38l-3 -195c58 46 99 88 99 167zM120 155c59 0 83 -49 83 -101c0 -103 -90 -185 -176 -228c-2 -1 -6 -2 -8 -2c-8 0 -14 6 -14 14l-5 601c0 8 6 14 14 14h12c8 0 14 -6 14 -14l-4 -321c5 6 34 37 84 37z","bb":[0.0,-176.0,203.0,629.0]},"nat":{"d":"M28 -97l116 32v165l-116 -33v-164zM166 183c3 -2 5 -7 5 -11v-495h-27v175l-126 -35h-4c-8 0 -14 5 -14 13v495h28v-175l126 35c1 0 3 1 4 1c3 0 6 -1 8 -3z","bb":[0.0,-323.0,171.0,648.0]},"sharp":{"d":"M78 74v-166l89 19v165zM233 105l-38 -7v-165l33 7h2c8 0 14 -6 14 -14v-59c0 -6 -5 -13 -11 -14l-38 -7v-147h-28v141l-89 -18v-155h-28v149l-33 -7h-3c-8 0 -14 6 -14 14v58c0 6 5 13 11 14l39 8v165l-33 -7h-3c-8 0 -14 6 -14 14v58c0 6 5 13 11 14l39 8v147h28v-141 l89 18v155h28v-149l33 7h2c8 0 14 -6 14 -14v-59c0 -6 -5 -13 -11 -14z","bb":[0.0,-333.0,244.0,667.0]},"rW":{"d":"M14 5h297c8 0 14 -6 14 -14v-108c0 -8 -6 -14 -14 -14h-297c-8 0 -14 6 -14 14v108c0 8 6 14 14 14z","bb":[0.0,-131.0,325.0,136.0]},"rH":{"d":"M0 10v108c0 14 0 14 14 14h297c14 0 14 0 14 -14v-108c0 -14 0 -14 -14 -14h-297c-14 0 -14 0 -14 14z","bb":[0.0,-4.0,325.0,136.0]},"rQ":{"d":"M230 -166l2 -3c2 -3 3 -5 3 -8s-1 -5 -3 -9c-3 -4 -6 -5 -10 -5s-8 2 -8 2l-39 25c-8 5 -19 9 -32 9c-32 0 -56 -26 -56 -58c0 -18 7 -32 7 -32s32 -58 35 -63c1 -2 3 -5 3 -9s-2 -8 -7 -12c-2 -2 -4 -2 -6 -2c-7 0 -12 6 -12 6s-75 95 -96 127c-8 11 -11 25 -11 39 c0 51 40 93 91 93c12 0 21 -2 25 -3l-112 139c-2 2 -3 5 -3 8v9c0 2 1 6 2 8l101 154c2 3 3 8 3 12c0 5 -1 9 -3 12l-76 104s-3 5 -3 11c0 3 1 7 5 10c3 2 5 3 8 3c6 0 10 -6 10 -6l162 -219c2 -2 3 -5 3 -8v-9c0 -2 -1 -5 -2 -7l-102 -154c-1 -2 -2 -6 -2 -9 c0 -2 1 -5 2 -6l115 -142c3 -4 5 -6 6 -7z","bb":[0.0,-331.0,235.0,732.0]},"r8":{"d":"M267 203c6 -3 9 -7 9 -12c0 -2 0 -4 -1 -5l-140 -441l-27 8l114 356c-34 -37 -69 -62 -122 -62c-47 0 -100 25 -100 79c0 39 32 71 72 71c39 0 71 -32 71 -71c0 -19 -7 -35 -18 -48c16 3 32 10 45 20c45 33 76 92 80 98c2 5 7 8 13 8c1 0 3 -1 4 -1z","bb":[0.0,-255.0,276.0,459.0]},"r16":{"d":"M343 186l-195 -693l-27 7l102 365c-30 -39 -69 -64 -119 -66c-20 0 -37 2 -56 10c-26 9 -47 34 -47 64c0 40 30 74 70 74c39 0 73 -29 73 -69c0 -17 -6 -34 -17 -48c51 13 108 78 122 125l45 159c-30 -39 -69 -64 -119 -66c-47 0 -101 19 -103 75c0 39 29 72 69 74 c39 0 74 -30 74 -69c0 -18 -5 -34 -17 -48c55 14 95 68 119 116c3 5 7 8 13 8c1 0 3 0 5 -1c6 -2 9 -7 9 -12c0 -2 0 -3 -1 -5z","bb":[1.0,-507.0,343.0,711.0]},"brace":{"d":"M9 500c18 -19 53 -57 53 -130c0 -91 -39 -183 -39 -240c0 -61 35 -118 37 -120v-2c1 -1 0 -2 -1 -3s-3 0 -4 2c-1 1 -55 56 -55 137c0 88 35 150 35 265c0 22 -9 57 -34 88c-1 1 -2 2 -1 3c0 1 0 3 1 3c25 31 34 66 34 88c0 115 -35 177 -35 265c0 82 54 136 55 137 c1 2 3 2 4 2c1 -1 1 -2 1 -3v-2c-2 -2 -37 -59 -37 -120c0 -57 39 -149 39 -240c0 -72 -35 -111 -53 -130z","bb":[-0.41,4.61,62.41,990.39]},"t0":{"d":"M202 255c106 0 187 -110 187 -255s-81 -254 -187 -254s-187 109 -187 254s81 255 187 255zM261 -139v278c0 36 -16 75 -59 75s-59 -39 -59 -75v-278c0 -36 16 -75 59 -75s59 39 59 75z","bb":[15.0,-254.0,374.0,509.0]},"t1":{"d":"M249 -197h76c7 0 11 -5 11 -12v-22c0 -7 -4 -12 -11 -12h-274c-7 0 -12 5 -12 12v22c0 7 5 12 12 12h76v341l-71 -122c-2 -3 -6 -6 -10 -6c-2 0 -4 1 -6 2l-19 11c-3 2 -6 6 -6 10c0 2 0 4 1 6l112 194l4 4c2 1 4 2 6 2h99c7 0 12 -5 12 -12v-430z","bb":[15.0,-243.0,321.0,488.0]},"t2":{"d":"M342 -39c4 10 11 14 18 14c9 0 17 -6 17 -19c0 -27 -23 -102 -41 -139s-61 -60 -93 -60s-60 16 -78 42s-29 60 -58 60c-24 0 -32 -10 -33 -16c-1 -3 -1 -6 -1 -9c0 -8 2 -19 8 -33c2 -5 3 -9 3 -13c0 -18 -17 -31 -33 -31c-12 0 -36 3 -36 50s30 89 30 89 c58 87 197 112 197 229c0 51 -11 86 -68 86c-15 0 -29 -3 -34 -5c-18 -5 -23 -12 -23 -18c0 -5 4 -10 7 -11c26 -10 46 -41 46 -69c0 -41 -33 -74 -74 -74s-75 33 -75 74c0 46 28 137 179 137s170 -83 170 -125c0 -60 -27 -112 -133 -145s-131 -71 -131 -71c10 2 18 3 26 3 c54 0 68 -40 133 -40c49 0 69 72 77 94z","bb":[15.0,-243.0,362.0,488.0]},"t3":{"d":"M272 16h-2c44 -14 94 -45 94 -118c0 -109 -104 -142 -200 -142c-74 0 -149 41 -149 123c0 36 29 65 65 65s64 -29 64 -65c0 -33 -27 -62 -60 -64c11 -8 37 -16 65 -16c42 0 87 18 87 85c0 70 -23 100 -67 106c-32 5 -55 5 -72 6c-11 1 -13 12 -13 12v20s1 14 13 14 s68 4 80 6s59 11 59 74c0 54 -45 79 -87 79c-19 0 -38 -5 -52 -15l-3 -3c28 -6 50 -34 50 -63c0 -36 -28 -64 -64 -64s-65 28 -65 64l1 2h-1s-5 122 167 122s175 -113 175 -122v-5c0 -18 -5 -70 -85 -101z","bb":[14.98,-244.0,349.02,488.0]},"t4":{"d":"M208 -127h-172c-9 0 -11 6 -11 6s-7 11 -10 18c-1 2 -1 4 -1 6c0 6 3 11 3 11c26 37 56 87 82 168s31 155 31 155c1 6 6 12 13 12h149c4 0 7 -2 10 -4l22 -22c1 -1 3 -5 3 -10c0 -4 -1 -9 -5 -14c-118 -158 -230 -278 -230 -278h116v82c0 4 1 8 4 11l91 83c3 3 7 3 11 3 c2 0 3 0 5 -1l12 -6c4 -2 7 -7 7 -13v-159h90c8 0 14 -7 14 -14v-19c0 -8 -6 -15 -14 -15h-90v-74h90c8 0 14 -6 14 -14v-19c0 -8 -6 -14 -14 -14h-303c-7 0 -14 6 -14 14v19c0 8 7 14 14 14h83v74z","bb":[14.0,-248.0,428.0,497.0]},"t5":{"d":"M27 218c0 16 7 21 22 21c7 0 12 -1 12 -1c43 -6 78 -10 114 -10c37 0 75 4 124 16c6 1 10 2 14 2c13 0 18 -6 18 -14c0 -3 -1 -7 -2 -10c-28 -74 -82 -89 -154 -89c-35 0 -68 4 -83 5h-1c-6 0 -11 -5 -11 -11v-63c0 -4 3 -7 7 -7c1 0 3 0 4 1c29 20 64 28 97 28 c100 0 174 -56 174 -162c0 -107 -85 -168 -187 -168c-77 0 -160 37 -160 125c0 34 27 70 66 70s73 -19 73 -68s-31 -60 -40 -66c-3 -2 -4 -4 -4 -7c0 -2 2 -5 5 -6c6 -4 19 -7 42 -7h8c66 3 82 75 82 125c0 48 -13 109 -84 109c-63 0 -74 -52 -79 -65c-2 -6 -6 -7 -10 -7h-5 c-5 1 -26 6 -35 8c-7 1 -7 11 -7 16c0 0 4 66 5 122v13c0 52 -5 100 -5 100z","bb":[15.0,-244.0,347.0,490.0]},"t6":{"d":"M210 -202c33 0 61 45 61 101s-28 102 -61 102s-60 -46 -60 -102s27 -101 60 -101zM247 48c63 0 140 -37 140 -135c0 -116 -131 -157 -166 -157s-72 2 -130 46c-59 52 -76 121 -76 182c0 56 15 105 25 129c20 46 85 132 175 132c100 0 142 -53 155 -89c4 -8 6 -23 6 -32 v-3c0 -36 -29 -64 -65 -64s-64 28 -64 64c0 23 17 50 38 59c-10 11 -25 19 -50 19c-70 0 -90 -74 -90 -131c0 -16 2 -32 5 -53c14 15 36 33 97 33z","bb":[15.0,-244.0,372.0,489.0]},"t7":{"d":"M162 -123c23 33 125 206 133 222c-10 -10 -47 -13 -67 -13c-80 0 -83 38 -118 38s-50 -31 -50 -54v-32c0 -6 -5 -11 -11 -11h-23c-6 0 -11 5 -11 11v185c0 6 5 11 11 11h23c6 0 11 -5 11 -11v-48c3 6 41 69 103 69c65 0 77 -86 119 -86c40 0 42 69 42 79s7 14 12 14h18 c6 0 10 -4 11 -14s1 -14 1 -23c0 -23 -6 -78 -17 -109c-22 -63 -54 -148 -66 -195c-6 -22 -8 -46 -8 -67c0 -37 6 -68 6 -70v-3c1 -9 -16 -20 -25 -20c-7 0 -34 7 -63 7c-3 0 -7 -1 -10 -1c-32 -2 -42 -6 -58 -6c-11 0 -14 6 -14 17c0 37 29 77 51 110z","bb":[15.0,-250.0,351.0,501.0]},"t8":{"d":"M268 45c18 9 40 32 40 80c0 46 -42 75 -104 75c-43 0 -79 -16 -79 -55c0 -45 75 -78 143 -100zM204 -192c63 0 98 35 98 62c0 55 -97 89 -165 112c0 0 -52 -16 -52 -83c0 -56 55 -91 119 -91zM324 18c52 -27 69 -72 69 -120c0 -81 -85 -146 -189 -146s-189 65 -189 146 c0 48 25 85 70 111c-47 30 -57 66 -57 106c0 72 79 131 176 131s176 -59 176 -131c0 -40 -23 -72 -56 -97z","bb":[15.0,-248.0,378.0,494.0]},"t9":{"d":"M192 204c-33 0 -61 -46 -61 -102s28 -101 61 -101s60 45 60 101s-27 102 -60 102zM155 -47c-63 0 -140 37 -140 135c0 116 131 157 166 157s72 -2 130 -46c59 -52 76 -121 76 -182c0 -56 -15 -105 -25 -129c-20 -46 -85 -132 -175 -132c-100 0 -142 53 -155 89 c-4 8 -6 23 -6 32v3c0 36 29 64 65 64s64 -28 64 -64c0 -23 -17 -50 -38 -59c10 -11 25 -19 50 -19c70 0 90 74 90 131c0 16 -2 32 -5 53c-14 -15 -36 -33 -97 -33z","bb":[15.0,-244.0,372.0,489.0]}};
 const K=0.04,NHW=G.nhB.bb[2]*K,SEMI=[0,2,4,5,7,9,11];
 document.getElementById('defs').innerHTML=Object.entries(G).map(([k,v])=>`<path id="g-${k}" d="${v.d}"/>`).join('');
@@ -174,19 +191,19 @@ function genLine(lv){
  const line={meter,key,ka,M,dur:M*meter,rh,lh,notes:[],groups:[],stats:{good:0,bad:0,extra:0}};
  for(const ev of lh){const o=rh.find(x=>Math.abs(x.t-ev.t)<1e-9);if(o)for(const n of ev.notes)if(o.notes.some(q=>midiOf(q.d,q.a)==midiOf(n.d,n.a)))n.d-=7}
  for(const[staff,arr]of[['rh',rh],['lh',lh]])for(const ev of arr){ev.staff=staff;ev.notes.sort((a,b)=>a.d-b.d);
-  ev.notes=ev.notes.map(n=>{const o={...n,midi:midiOf(n.d,n.a),id:'n'+NID++,t:ev.t,line};line.notes.push(o);return o})}
+  ev.notes=ev.notes.map(n=>{const o=Object.assign({},n,{midi:midiOf(n.d,n.a),id:'n'+NID++,t:ev.t,line});line.notes.push(o);return o})}
  const gm=new Map();for(const n of line.notes){const k=n.t.toFixed(4);if(!gm.has(k))gm.set(k,{t:n.t,notes:[]});gm.get(k).notes.push(n)}
  line.groups=[...gm.values()].sort((a,b)=>a.t-b.t);
  return line}
 /* ---------- engraving ---------- */
 const f1=v=>Math.round(v*10)/10;
-const U=(g,x,y,ex='')=>`<use href="#g-${g}" transform="translate(${f1(x)} ${f1(y)}) scale(${K} ${-K})"${ex}/>`;
+const U=(g,x,y,ex='')=>`<use href="#g-${g}" xlink:href="#g-${g}" transform="translate(${f1(x)} ${f1(y)}) scale(${K} ${-K})"${ex}/>`;
 const TB=100,BB=200,XL=16,XR=1088;
 const yOf=(s,d)=>s=='rh'?TB-(d-30)*5:BB-(d-18)*5,posOf=(s,d)=>s=='rh'?d-30:d-18;
 function renderLine(slot,fresh){
  const L=st.lines[slot],svg=$('s'+slot),m=L.meter;let s='';
  for(const top of[60,160])for(let i=0;i<5;i++)s+=`<line class="sl" x1="${XL}" x2="${XR}" y1="${top+i*10}" y2="${top+i*10}"/>`;
- s+=`<use href="#g-brace" transform="translate(4 200) scale(.13 -.1414)"/><line class="bl" x1="${XL}" x2="${XL}" y1="60" y2="200"/><line class="bl" x1="${XR}" x2="${XR}" y1="60" y2="200"/>`;
+ s+=`<use href="#g-brace" xlink:href="#g-brace" transform="translate(4 200) scale(.13 -.1414)"/><line class="bl" x1="${XL}" x2="${XL}" y1="60" y2="200"/><line class="bl" x1="${XR}" x2="${XR}" y1="60" y2="200"/>`;
  s+=U('gClef',24,90)+U('fClef',24,170);
  const f=KEYS[L.key][0],na=Math.abs(f),tp=f>0?[8,5,9,6,3,7,4]:[4,7,3,6,2,5,1];let hx=60;
  for(let i=0;i<na;i++){const g=f>0?'sharp':'flat';s+=U(g,hx+i*9,TB-tp[i]*5)+U(g,hx+i*9,BB-(tp[i]-2)*5)}
@@ -209,7 +226,7 @@ function renderLine(slot,fresh){
   const beams=new Map(),grps=[];let cg=null;
   for(const ev of arr){if(!ev.rest&&ev.dur<1){const b=Math.floor(ev.t+1e-9);if(cg&&cg.b===b)cg.evs.push(ev);else{cg={b,evs:[ev]};grps.push(cg)}}else cg=null}
   for(const g of grps){if(g.evs.length<2)continue;
-   const ys=g.evs.map(e=>e.notes.map(n=>yOf(staff,n.d)));const all=ys.flat();const up=all.reduce((a,y)=>a+y,0)/all.length>mid;
+   const ys=g.evs.map(e=>e.notes.map(n=>yOf(staff,n.d)));const all=[].concat.apply([],ys);const up=all.reduce((a,y)=>a+y,0)/all.length>mid;
    const sx=g.evs.map(e=>up?xAt(e.t)+NHW-.65:xAt(e.t)+.65);
    const req=ys.map(y=>up?Math.min(Math.min(...y)-30,mid):Math.max(Math.max(...y)+30,mid));
    const n=sx.length-1;let y1=req[0];const dy=Math.max(-8,Math.min(8,req[n]-req[0])),sl=dy/(sx[n]-sx[0]||1);
@@ -237,14 +254,14 @@ function renderLine(slot,fresh){
  s+=`<rect class="cur" id="c${slot}" x="-50" y="32" width="${f1(NHW+14)}" height="200" rx="5"/>`;
  svg.innerHTML=s;
  for(const n of L.notes)n.els=[...svg.querySelectorAll(`[data-n="${n.id}"]`)];
- if(fresh){svg.classList.remove('fresh');void svg.getBBox();svg.classList.add('fresh')}
+ if(fresh){svg.classList.remove('fresh');void svg.getBoundingClientRect();svg.classList.add('fresh')}
 }
 /* ---------- state ---------- */
 const TOL={relaxed:180,normal:130,strict:90};
-const st={level:0,mode:'wait',bpm:60,tol:'normal',metro:true,sound:true,midiSound:false,oct:4,lines:[null,null],cur:0,gi:0,streak:0,last:null,running:false,busy:false,T0:[0,0],fin:null,raf:0,mNext:0};
+const st={wake:true,level:0,mode:'wait',bpm:60,tol:'normal',metro:true,sound:true,midiSound:false,oct:4,lines:[null,null],cur:0,gi:0,streak:0,last:null,running:false,busy:false,T0:[0,0],fin:null,raf:0,mNext:0};
 try{Object.assign(st,JSON.parse(localStorage.getItem('flowstave')||'{}'))}catch(e){}
 st.level=Math.max(0,Math.min(9,st.level|0));if(!st.bpm)st.bpm=LV[st.level].bpm;
-const save=()=>{try{localStorage.setItem('flowstave',JSON.stringify({level:st.level,mode:st.mode,bpm:st.bpm,tol:st.tol,metro:st.metro,sound:st.sound,midiSound:st.midiSound,oct:st.oct}))}catch(e){}};
+const save=()=>{try{localStorage.setItem('flowstave',JSON.stringify({wake:st.wake,level:st.level,mode:st.mode,bpm:st.bpm,tol:st.tol,metro:st.metro,sound:st.sound,midiSound:st.midiSound,oct:st.oct}))}catch(e){}};
 const beatMs=()=>60000/st.bpm,goodWin=()=>Math.min(TOL[st.tol],beatMs()*.3),matchWin=()=>Math.min(Math.max(goodWin()*2.2,260),beatMs()*.9);
 const accOf=L=>{const j=L.stats.good+L.stats.bad+L.stats.extra;return j?L.stats.good/j:null};
 const pct=a=>a==null?'–':Math.round(a*100)+'%';
@@ -296,9 +313,9 @@ function schedMetro(){if(!st.running)return;const now=performance.now(),b=beatMs
   const i=Math.round((st.mNext-t0)/b);if(st.metro)click(st.mNext,((i%m)+m)%m==0);st.mNext+=b}}
 function tick(){
  if(!st.running)return;const now=performance.now(),b=beatMs(),mw=matchWin();
- for(const s of active())for(const n of st.lines[s].notes)if(!n.state&&n.T!=null&&now>n.T+mw){n.matched=true;judge(n,false)}
+ for(const s of active())for(const n of st.lines[s].notes)if(!n.state&&n.T!=null&&now>n.T+mw+GRACE){n.matched=true;judge(n,false)}
  const L=st.lines[st.cur],end=st.T0[st.cur]+L.dur*b;
- if(now>=end){st.fin={slot:st.cur,until:end+mw+40};const nx=1-st.cur;activate(nx,end);st.cur=nx;hud()}
+ if(now>=end){st.fin={slot:st.cur,until:end+mw+GRACE+40};const nx=1-st.cur;activate(nx,end);st.cur=nx;hud()}
  if(st.fin&&now>=st.fin.until){const s=st.fin.slot;st.fin=null;if(finishLine(s))return;regen(s)}
  const C=st.lines[st.cur],t=(now-st.T0[st.cur])/b,sl=C.slots;let x=sl[0].x;
  if(t>0){x=C.endX;for(let i=0;i<sl.length;i++){const a=sl[i],nb=sl[i+1]||{t:C.dur,x:C.endX};if(t<nb.t){x=a.x+(nb.x-a.x)*(t-a.t)/(nb.t-a.t);break}}}
@@ -333,7 +350,7 @@ const LOW=36,HIGH=96,kb=$('kb'),keyEl={};
 const keyT={};
 function keyShow(m,c){const e=keyEl[m];if(!e)return;e.classList.remove('on','g','r');e.classList.add(c=='good'?'g':c=='bad'?'r':'on');clearTimeout(keyT[m]);keyT[m]=setTimeout(()=>e.classList.remove('on','g','r'),320)}
 let ptrKey=null;
-kb.addEventListener('pointerdown',e=>{const k=e.target.closest('[data-m]');if(!k)return;e.preventDefault();ensureAudio();ptrKey=+k.dataset.m;noteOn(ptrKey,e.timeStamp,'screen')});
+kb.addEventListener(window.PointerEvent?'pointerdown':'touchstart',e=>{const k=e.target.closest('[data-m]');if(!k)return;e.preventDefault();ensureAudio();ptrKey=+k.dataset.m;noteOn(ptrKey,e.timeStamp,'screen')});
 const WK=['KeyA','KeyS','KeyD','KeyF','KeyG','KeyH','KeyJ','KeyK','KeyL','Semicolon','Quote'],WO=[0,2,4,5,7,9,11,12,14,16,17],BK=['KeyW','KeyE','KeyT','KeyY','KeyU','KeyO','KeyP'],BO=[1,3,6,8,10,13,15];
 function hint(){$('hint').innerHTML=`Computer keys: <kbd>A</kbd>–<kbd>'</kbd> white keys from C${st.oct}, <kbd>W</kbd> <kbd>E</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> black keys, <kbd>Z</kbd>/<kbd>X</kbd> octave down/up${st.mode=='tempo'?', <kbd>Space</kbd> start/stop':''}. Notes are graded on pitch and timing; held length isn't graded.`}
 addEventListener('keydown',e=>{if(e.repeat||e.metaKey||e.ctrlKey||e.altKey||/INPUT|SELECT/.test(document.activeElement.tagName))return;
@@ -341,14 +358,42 @@ addEventListener('keydown',e=>{if(e.repeat||e.metaKey||e.ctrlKey||e.altKey||/INP
  if(e.code=='Space'&&st.mode=='tempo'){e.preventDefault();$('go').click();return}
  let i=WK.indexOf(e.code),o=i>=0?WO[i]:null;if(o==null){i=BK.indexOf(e.code);if(i>=0)o=BO[i]}
  if(o!=null){e.preventDefault();ensureAudio();noteOn(12*(st.oct+1)+o,e.timeStamp,'keys')}});
-/* ---------- MIDI ---------- */
-function onMidi(e){const[s,a,b]=e.data,c=s&0xf0;if(c==0x90&&b>0)noteOn(a,e.timeStamp,'midi')}
-function initMidi(){
- if(!navigator.requestMIDIAccess){$('midiStat').textContent='MIDI needs Chrome or Edge. On-screen and computer keys still work.';return}
- navigator.requestMIDIAccess().then(acc=>{const bind=()=>{const names=[];for(const i of acc.inputs.values()){i.onmidimessage=onMidi;names.push(i.name)}
-  $('midiStat').innerHTML=names.length?'MIDI: <em>'+names.join(', ')+'</em>':'No MIDI keyboard found. Plug one in.';$('midiBtn').style.display=names.length?'none':''};
-  bind();acc.onstatechange=bind}).catch(()=>{$('midiStat').textContent='MIDI is blocked in this view. Open the page in its own Chrome tab, or use the keys below.'})}
-$('midiBtn').onclick=initMidi;
+/* ---------- MIDI from the Flowstave server on the PC ----------
+   The PC stamps each note with its own clock. We keep an estimate of the difference between
+   the PC clock and this device's clock (from ping/pong round trips, trusting the fastest ones),
+   convert each stamp to local time, and grade with that. Wi-Fi delay then only affects how
+   soon a note changes colour, not whether it counts as on time. */
+const GRACE=150; // ms to wait for Wi-Fi-delayed notes before calling a note missed
+const net={ws:null,offset:null,samples:[],rtt:null,names:[],err:null,up:false,retry:500,pid:0,timer:0};
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function netStatus(){const s=$('midiStat');
+ if(location.protocol=='file:'){s.textContent='Open this page through the Flowstave server to use your MIDI keyboard.';return}
+ if(!net.up){s.textContent='Connecting to the Flowstave server…';return}
+ const dev=net.names.length?'MIDI: <em>'+esc(net.names.join(', '))+'</em>':esc(net.err||'Server connected. No MIDI keyboard on the PC yet.');
+ s.innerHTML=dev+(net.rtt!=null?' · network '+Math.max(1,Math.round(net.rtt/2))+' ms':'')}
+function ping(){if(net.ws&&net.ws.readyState==1)net.ws.send(JSON.stringify({type:'ping',id:++net.pid,c0:performance.now()}))}
+function burst(n){net.samples=[];for(let i=0;i<n;i++)setTimeout(ping,i*120)}
+function onPong(m){const c1=performance.now(),rtt=c1-m.c0;net.samples.push({rtt,off:m.s-(m.c0+c1)/2});if(net.samples.length>15)net.samples.shift();
+ const b=minBy(net.samples,x=>x.rtt);net.offset=b.off;net.rtt=b.rtt;netStatus()}
+function onServer(m){
+ if(m.type=='pong')onPong(m);
+ else if(m.type=='devices'){net.names=m.names||[];net.err=m.error;netStatus()}
+ else if(m.type=='note'&&m.on){const local=performance.now(),ts=net.offset==null?local:Math.min(m.t-net.offset,local);noteOn(m.note,ts,'midi')}}
+function connect(){
+ if(location.protocol=='file:'){netStatus();return}
+ let ws;try{ws=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/ws')}catch(e){setTimeout(connect,2000);return}
+ net.ws=ws;
+ ws.onopen=()=>{net.up=true;net.retry=500;burst(8);clearInterval(net.timer);net.timer=setInterval(ping,3000);netStatus()};
+ ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}onServer(m)};
+ ws.onclose=()=>{net.up=false;net.offset=null;clearInterval(net.timer);netStatus();setTimeout(connect,net.retry);net.retry=Math.min(net.retry*2,5000)};
+ ws.onerror=()=>{try{ws.close()}catch(x){}}}
+/* keep the screen on (needs HTTPS on iPad; otherwise show the Auto-Lock tip) */
+let wl=null;
+function wake(){if(!st.wake||!('wakeLock' in navigator)||wl||document.visibilityState!='visible')return;try{navigator.wakeLock.request('screen').then(l=>{wl=l;l.addEventListener('release',()=>{wl=null})}).catch(()=>{})}catch(e){}}
+if('wakeLock' in navigator){$('oWake').checked=st.wake;$('oWake').onchange=e=>{st.wake=e.target.checked;save();if(st.wake)wake();else if(wl){wl.release();wl=null}}}
+else{$('wakeBox').hidden=true;$('wakeTip').hidden=false}
+addEventListener('pointerdown',wake);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState=='visible'){wake();if(net.up)burst(6)}});
 /* ---------- controls ---------- */
 const setLevel=l=>{st.level=Math.max(0,Math.min(9,l));st.bpm=LV[st.level].bpm;st.streak=0;st.last=null;save();newSession()};
 $('lvDown').onclick=()=>setLevel(st.level-1);$('lvUp').onclick=()=>setLevel(st.level+1);
@@ -357,8 +402,10 @@ const bump=d=>{st.bpm=Math.max(30,Math.min(180,st.bpm+d));save();if(st.running)n
 $('go').onclick=()=>{ensureAudio();if(st.mode=='wait'||st.running)newSession();else startTempo()};
 for(const[id,k]of[['oMetro','metro'],['oSound','sound'],['oMidiSound','midiSound']]){$(id).checked=st[k];$(id).onchange=e=>{st[k]=e.target.checked;save()}}
 $('oTol').value=st.tol;$('oTol').onchange=e=>{st.tol=e.target.value;save()};
-window.__fs={st,noteOn,genLine,renderLine,newSession,startTempo};
-hint();newSession();initMidi();
-}
+window.__fs={st,net,noteOn,genLine,renderLine,newSession,startTempo};
+connect(); // connect first, so a drawing problem can't stop the MIDI connection
+try{hint();newSession()}catch(e){window.__fsReport&&window.__fsReport('Drawing failed: '+e.message+' | '+String(e.stack||'').split('\n').slice(0,3).join(' / '));}
+window.__fsStarted=true;
+})();
 </script>
 </body></html>
