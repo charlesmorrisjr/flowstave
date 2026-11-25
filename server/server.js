@@ -21,12 +21,14 @@ const os = require('os');
 const path = require('path');
 const { performance } = require('perf_hooks');
 const { WebSocketServer, WebSocket } = require('ws');
+const ai = require('./ai/generate');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const MIDI_FILTER = (process.env.MIDI_FILTER || '').toLowerCase();
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const CERT_DIR = path.join(__dirname, 'certs');
+const MODELS_DIR = path.join(__dirname, 'models');
 const POLL_MS = 2000;
 
 const now = () => performance.now(); // monotonic milliseconds, sub-millisecond precision
@@ -54,6 +56,42 @@ function serveStatic(req, res) {
     let body = '';
     req.on('data', c => { if (body.length < 4000) body += c; });
     req.on('end', () => { log(`Problem reported by the page on ${who(req)} (${describeBrowser(req.headers['user-agent'])}):\n    ${body.slice(0, 1500)}`); res.writeHead(204); res.end(); });
+    return;
+  }
+  // Piano samples (Salamander Grand Piano, installed by npm): /samples/piano/v8/C4v8.mp3
+  const sm = urlPath.match(/^\/samples\/piano\/v(\d+)\/([A-G]#?\d+v\d+\.mp3)$/);
+  if (sm) {
+    let dir;
+    try { dir = path.join(path.dirname(require.resolve(`@audio-samples/piano-mp3-velocity${sm[1]}/package.json`)), 'audio'); }
+    catch { res.writeHead(404); return res.end(); }
+    return fs.readFile(path.join(dir, sm[2]), (err, data) => {
+      if (err) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=31536000, immutable' });
+      res.end(data);
+    });
+  }
+  // AI music: list models, generate phrases.
+  if (urlPath === '/api/models') {
+    const list = [...ai.models.values()].map(m => m.publicInfo());
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end(JSON.stringify({ models: list }));
+  }
+  if (urlPath === '/api/generate') {
+    const q = new URL(req.url, 'http://x').searchParams;
+    const level = Math.max(1, Math.min(11, Number(q.get('level')) || 1)); // 11 = Free level
+    const count = Math.max(1, Math.min(6, Number(q.get('count')) || 1));
+    const t0 = now();
+    const opts = {};  // keep the session's key and time signature when the app asks for them
+    if (q.get('fifths') !== null && /^-?\d+$/.test(q.get('fifths'))) opts.fifths = Number(q.get('fifths'));
+    if (q.get('meter') && /^\d+\/\d+$/.test(q.get('meter'))) opts.meter = q.get('meter');
+    ai.generate(q.get('model') || '', level, count, opts).then(phrases => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ phrases, ms: Math.round(now() - t0) }));
+    }).catch(e => {
+      log(`AI generation failed: ${e.message}`);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    });
     return;
   }
   if (urlPath === '/') { urlPath = '/index.html'; log(`Page opened from ${who(req)} (${describeBrowser(req.headers['user-agent'])})`); }
@@ -181,6 +219,11 @@ function start() {
     for (const ip of lanAddresses()) console.log(`  On your iPad:      ${proto}://${ip}:${PORT}`);
     console.log(`  Host name:         ${proto}://${os.hostname()}.local:${PORT}  (works if your network supports .local names)\n`);
     if (midi.error) console.log('  ' + midi.error + '\n');
+    const loaded = ai.loadModels(MODELS_DIR);
+    if (loaded.error) console.log('  AI music: ' + loaded.error + '\n');
+    else if (loaded.names.length) console.log(`  AI music models: ${loaded.names.join(', ')}\n`);
+    if (loaded.skipped && loaded.skipped.length) console.log(`  Skipped models: ${loaded.skipped.join('; ')}\n`);
+    else console.log('  AI music: no models installed yet (see ai/README.md)\n');
     syncPorts();
     if (!midi.names.length && !midi.error) log('No MIDI keyboard found yet. Plug one in; it will be picked up automatically.');
     setInterval(syncPorts, POLL_MS).unref();

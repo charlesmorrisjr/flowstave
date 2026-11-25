@@ -1,97 +1,39 @@
-# Flowstave: sight-reading trainer with MIDI over your home network
+# Flowstave
 
-Play your MIDI keyboard into your PC and practise on your iPad. The PC reads the keyboard and serves the app. The iPad shows the music in Safari and grades every note.
+A sight-reading trainer for piano. Two grand staves of music appear at a time. Notes turn green or red as you play them on a MIDI keyboard, and finished staves are replaced with new music. Ten levels lead from simple right-hand melodies to intermediate pieces, plus a Free level with no limits.
+
+Play your keyboard into a PC and practise on an iPad or any browser on your home network. The music can come from built-in rules, a Yiruma-style rule set, or an AI model trained on Chopin.
+
+## The two parts
 
 ```
-MIDI keyboard ──USB──> PC (Flowstave server) ──Wi-Fi──> iPad (Safari)
+flowstave/
+├── server/   the app: run it every time you practise
+└── ai/       the training kit: use it to build or improve AI music models
 ```
 
-The PC records the exact time of every note as it arrives, and the iPad keeps its clock in sync with the PC's. So Wi-Fi delay only affects how soon a note turns green or red. It doesn't change whether the note counts as on time.
-
-## What you need
-
-- A PC or Mac with **Node.js 18 or newer** (download the LTS version from nodejs.org).
-- A MIDI keyboard or digital piano connected to that computer by USB.
-- An iPad (or any tablet, phone or laptop) on the **same Wi-Fi network**.
-
-## Setup (once)
-
-1. Unzip this folder somewhere convenient, such as Documents.
-2. Open a terminal in the folder:
-   - Windows: open the folder, click the address bar, type `cmd` and press Enter.
-   - Mac: right-click the folder in Finder and choose **New Terminal at Folder**.
-3. Install the two dependencies:
-
-   ```
-   npm install
-   ```
-
-## Every time you practise
-
-1. Plug in the keyboard. (It can also be plugged in later; the server checks every couple of seconds.)
-2. Start the server: run `npm start` in the folder, or double-click `start-windows.bat` (Windows) or `start-mac.command` (Mac).
-3. The window shows addresses like this:
-
-   ```
-   On this computer:  http://localhost:3000
-   On your iPad:      http://192.168.1.20:3000
-   ```
-
-4. On the iPad, open Safari and go to the **On your iPad** address.
-5. The status line under the music should show your keyboard's name and the network delay, for example `MIDI: Digital Piano · network 4 ms`.
-
-Optional: in Safari, tap Share > **Add to Home Screen** to open Flowstave full screen like an app.
-
-Keep the server window open while you practise. Close it, or press Ctrl+C, to stop.
-
-## Tips for the lowest delay
-
-- Connect the PC to your router with an Ethernet cable if you can.
-- Use your router's 5 GHz Wi-Fi for the iPad, and turn off Low Power Mode.
-- Your keyboard makes its own sound, so leave **Sound for MIDI keyboard** off.
-- If you use the metronome, play it through the iPad's speaker or wired headphones. Bluetooth headphones lag by 150–250 ms.
-- Give the PC a fixed IP address in your router settings, so the iPad bookmark never changes.
-
-## Keeping the iPad screen on
-
-Safari only lets a page keep the screen awake over HTTPS. Over plain `http://` the app shows a tip instead. You have two options:
-
-- **Simple:** on the iPad, go to Settings > Display & Brightness > Auto-Lock and choose **Never** while you practise.
-- **HTTPS (one-time setup):**
-  1. Install [mkcert](https://github.com/FiloSottile/mkcert) on the PC and run `mkcert -install`.
-  2. In this folder, run (with your PC's own address):
-
-     ```
-     mkdir certs
-     mkcert -key-file certs/key.pem -cert-file certs/cert.pem 192.168.1.20 localhost
-     ```
-
-  3. Copy `rootCA.pem` (run `mkcert -CAROOT` to find its folder) to the iPad, for example by AirDrop. Install it in Settings > General > VPN & Device Management. Then turn it on in Settings > General > About > Certificate Trust Settings.
-  4. Restart the server. It switches to `https://` automatically. Open the new `https://` address on the iPad and **Keep screen awake** will appear.
-
-## Settings
-
-Set these before `npm start`. On Mac/Linux use `PORT=3001 npm start`; on Windows use `set PORT=3001` then `npm start`.
-
-| Variable | Default | What it does |
+| | `server/` | `ai/` |
 |---|---|---|
-| `PORT` | `3000` | Port the server listens on. |
-| `HOST` | `0.0.0.0` | Network address to listen on (all by default). |
-| `MIDI_FILTER` | (none) | Only use MIDI inputs whose name contains this text, e.g. `MIDI_FILTER=yamaha`. |
+| What it does | Reads your MIDI keyboard, serves the app to your iPad, generates music | Downloads Chopin scores, trains a model, exports it for the server |
+| Language | Node.js | Python (PyTorch) |
+| Needed for practising | Yes | No: only to create models |
+| Setup | `npm install`, then `npm start` | Python 3.12 environment; see `ai/README.md` |
+| Guide | `server/README.md` | `ai/README.md` |
 
-## Troubleshooting
+**How they connect:** the training kit exports a model (`model.onnx` + `model.json`), and `python install_model.py` copies it into `server/models/<name>/`. Restart the server and the model appears in the app's Music menu. Nothing else is shared between the two parts, so the server doesn't need Python installed.
 
-- **The iPad can't open the page.** Check that both devices are on the same Wi-Fi. Windows may ask whether to allow Node.js on networks the first time; choose **Private networks**. If you missed that, allow Node.js in Windows Defender Firewall. On a Mac, allow incoming connections for `node` if asked.
-- **"No MIDI keyboard on the PC yet."** Check the USB cable and that the keyboard is on. On Windows, only one program can use a MIDI keyboard at a time, so close your DAW or any other music app.
-- **Several MIDI devices are connected and you only want one.** Use `MIDI_FILTER`.
-- **"Port 3000 is already in use."** Another program is using that port. Start with a different `PORT`.
-- **Notes register but sound late on the iPad.** That's the iPad's audio output, not the network. Turn off the iPad sound for MIDI and use the keyboard's own sound.
-- **Grading feels a bit strict or loose.** Change **Timing** (Relaxed / Normal / Strict) under the music.
+## Quick start
 
-## What's in the folder
+**Practise (server only):**
+1. Install Node.js 18 or newer.
+2. In `server/`, run `npm install`, then `npm start`.
+3. Open the "On your iPad" address it shows, on your iPad or any browser on the same network.
 
-- `server.js`: reads MIDI, records the time of each note, sends notes to connected browsers, answers clock-sync messages, and serves the app.
-- `public/index.html`: the app (music generation, notation, grading, levels).
-- `start-windows.bat`, `start-mac.command`: double-click starters.
+The Music menu offers Built-in rules and Yiruma-style rules straight away, plus a small test model trained on Chopin.
 
-Several browsers can connect at once; they all receive the same notes.
+**Train the Chopin model (once, then whenever you want to improve it):**
+Follow `ai/README.md`. In short: set up Python 3.12 with AMD's PyTorch build, then in `ai/` run `get_data.py`, `prepare_data.py`, `train.py`, `export_onnx.py`, `evaluate.py` and `install_model.py`.
+
+## Licences
+
+For personal, non-commercial use. See `ai/README.md` for the training data's licences, and `server/README.md` for the piano samples (Salamander Grand Piano, CC BY 3.0) and the music font (Leland, SIL Open Font License).

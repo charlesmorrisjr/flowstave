@@ -10,7 +10,10 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@audio-samples/piano-mp3-velocity13": "^1.0.5",
+    "@audio-samples/piano-mp3-velocity8": "^1.0.5",
     "@julusian/midi": "^3.9.0",
+    "onnxruntime-node": "^1.31.1",
     "ws": "^8.23.0"
   },
   "license": "MIT"

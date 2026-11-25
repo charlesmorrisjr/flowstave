@@ -1,0 +1,443 @@
+{
+ "about": "Difficulty levels shared by the data pipeline (to label training phrases) and the Flowstave server (as hard limits while generating). Durations are in ticks: 24 = quarter note, 12 = eighth, 6 = sixteenth, 3 = thirty-second; 16, 8, 4 and 2 are triplet quarter, eighth, sixteenth and thirty-second; 36, 18, 9 are dotted. Pitches are scientific pitch names; ranges are inclusive. lh: null means the left hand rests. maxChord is [right hand, left hand]. maxAcc is the most accidentals in one 4-bar stave. handsTogether false means the hands never start notes together. voices: how many independent voices one staff may have. grace: whether grace notes may appear. Ranges keep each hand readable on its own clef. \"free\" is the Free level: only notation limits, trained on Chopin's original phrases. meters: time signatures allowed.",
+ "durations": [
+  96,
+  72,
+  48,
+  36,
+  32,
+  24,
+  18,
+  16,
+  12,
+  9,
+  8,
+  6,
+  4,
+  3,
+  2
+ ],
+ "meters": [
+  "2/4",
+  "3/4",
+  "4/4",
+  "2/2",
+  "3/2",
+  "6/4",
+  "3/8",
+  "6/8",
+  "9/8",
+  "12/8"
+ ],
+ "levels": [
+  {
+   "level": 1,
+   "title": "Right hand, C to G",
+   "rh": [
+    "C4",
+    "G4"
+   ],
+   "lh": null,
+   "durs": [
+    96,
+    48,
+    24
+   ],
+   "maxChord": [
+    1,
+    0
+   ],
+   "maxFifths": 0,
+   "maxAcc": 0,
+   "handsTogether": false,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4"
+   ]
+  },
+  {
+   "level": 2,
+   "title": "Hands take turns",
+   "rh": [
+    "C4",
+    "G4"
+   ],
+   "lh": [
+    "C3",
+    "G3"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    24
+   ],
+   "maxChord": [
+    1,
+    1
+   ],
+   "maxFifths": 0,
+   "maxAcc": 0,
+   "handsTogether": false,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4"
+   ]
+  },
+  {
+   "level": 3,
+   "title": "Hands together",
+   "rh": [
+    "C4",
+    "A4"
+   ],
+   "lh": [
+    "C3",
+    "G3"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    24
+   ],
+   "maxChord": [
+    1,
+    1
+   ],
+   "maxFifths": 1,
+   "maxAcc": 0,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4"
+   ]
+  },
+  {
+   "level": 4,
+   "title": "Wider range, one sharp or flat",
+   "rh": [
+    "B3",
+    "D5"
+   ],
+   "lh": [
+    "G2",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    24
+   ],
+   "maxChord": [
+    1,
+    1
+   ],
+   "maxFifths": 1,
+   "maxAcc": 0,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4"
+   ]
+  },
+  {
+   "level": 5,
+   "title": "Eighth notes, left-hand intervals",
+   "rh": [
+    "A3",
+    "E5"
+   ],
+   "lh": [
+    "F2",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    24,
+    12
+   ],
+   "maxChord": [
+    1,
+    2
+   ],
+   "maxFifths": 2,
+   "maxAcc": 1,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4"
+   ]
+  },
+  {
+   "level": 6,
+   "title": "Dotted rhythms, two-note chords",
+   "rh": [
+    "A3",
+    "F5"
+   ],
+   "lh": [
+    "E2",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    36,
+    24,
+    12
+   ],
+   "maxChord": [
+    2,
+    2
+   ],
+   "maxFifths": 3,
+   "maxAcc": 2,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4",
+    "3/8",
+    "6/8"
+   ]
+  },
+  {
+   "level": 7,
+   "title": "Ledger lines and accidentals",
+   "rh": [
+    "G3",
+    "G5"
+   ],
+   "lh": [
+    "D2",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    36,
+    24,
+    12
+   ],
+   "maxChord": [
+    2,
+    3
+   ],
+   "maxFifths": 3,
+   "maxAcc": 4,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4",
+    "3/8",
+    "6/8"
+   ]
+  },
+  {
+   "level": 8,
+   "title": "Three-note chords",
+   "rh": [
+    "G3",
+    "A5"
+   ],
+   "lh": [
+    "C2",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    36,
+    24,
+    12
+   ],
+   "maxChord": [
+    3,
+    3
+   ],
+   "maxFifths": 4,
+   "maxAcc": 6,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4",
+    "3/8",
+    "6/8"
+   ]
+  },
+  {
+   "level": 9,
+   "title": "Sixteenths and triplets",
+   "rh": [
+    "G3",
+    "C6"
+   ],
+   "lh": [
+    "A1",
+    "C4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    36,
+    24,
+    18,
+    12,
+    8,
+    6
+   ],
+   "maxChord": [
+    3,
+    3
+   ],
+   "maxFifths": 5,
+   "maxAcc": 8,
+   "handsTogether": true,
+   "voices": 1,
+   "grace": false,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4",
+    "2/2",
+    "3/2",
+    "6/4",
+    "3/8",
+    "6/8",
+    "9/8",
+    "12/8"
+   ]
+  },
+  {
+   "level": 10,
+   "title": "Intermediate: two voices, grace notes, 32nds",
+   "rh": [
+    "F3",
+    "E6"
+   ],
+   "lh": [
+    "G1",
+    "D4"
+   ],
+   "durs": [
+    96,
+    72,
+    48,
+    36,
+    24,
+    18,
+    16,
+    12,
+    9,
+    8,
+    6,
+    4,
+    3
+   ],
+   "maxChord": [
+    4,
+    4
+   ],
+   "maxFifths": 6,
+   "maxAcc": 16,
+   "handsTogether": true,
+   "voices": 2,
+   "grace": true,
+   "meters": [
+    "2/4",
+    "3/4",
+    "4/4",
+    "2/2",
+    "3/2",
+    "6/4",
+    "3/8",
+    "6/8",
+    "9/8",
+    "12/8"
+   ]
+  }
+ ],
+ "free": {
+  "level": "free",
+  "title": "Free: Chopin as written",
+  "rh": [
+   "A0",
+   "C8"
+  ],
+  "lh": [
+   "A0",
+   "C8"
+  ],
+  "durs": [
+   96,
+   72,
+   48,
+   36,
+   32,
+   24,
+   18,
+   16,
+   12,
+   9,
+   8,
+   6,
+   4,
+   3,
+   2
+  ],
+  "maxChord": [
+   4,
+   4
+  ],
+  "maxFifths": 7,
+  "maxAcc": 99,
+  "handsTogether": true,
+  "maxSpan": 9,
+  "voices": 2,
+  "grace": true,
+  "meters": [
+   "2/4",
+   "3/4",
+   "4/4",
+   "2/2",
+   "3/2",
+   "6/4",
+   "3/8",
+   "6/8",
+   "9/8",
+   "12/8"
+  ]
+ },
+ "format": 2
+}

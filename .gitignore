@@ -1,2 +1,39 @@
-node_modules/
-certs/
+# ---------- server (Node.js) ----------
+# Dependencies (recreated by npm install)
+server/node_modules
+# HTTPS certificates: private keys, never commit
+server/certs/
+*.pem
+*.key
+# AI models: large files, rebuilt with ai/ (export_onnx.py, install_model.py)
+server/models/*
+!server/models/.gitkeep
+# Logs
+*.log
+npm-debug.log*
+
+# ---------- ai (Python) ----------
+# Python environment (recreated from ai/README.md steps 2-3)
+ai/.venv/
+ai/venv/
+# Downloaded scores and prepared training data (recreated by get_data.py and prepare_data.py)
+ai/data/
+# Training runs: checkpoints, logs and exported models (recreated by train.py and export_onnx.py)
+ai/out/
+*.pt
+*.onnx
+# Python caches
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# ---------- everywhere ----------
+# Local settings and secrets
+.env
+.env.*
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

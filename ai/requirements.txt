@@ -1,0 +1,6 @@
+# PyTorch itself is installed separately from AMD's ROCm builds (README step 3).
+music21>=9.1
+numpy>=1.26
+onnx>=1.16
+onnxscript>=0.1
+onnxruntime>=1.18
