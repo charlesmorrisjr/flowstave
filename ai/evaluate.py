@@ -42,6 +42,12 @@ def ngrams(sig, n):
     return {tuple(sig[i:i + n]) for i in range(len(sig) - n + 1)}
 
 
+def carry(a, b, n=4):
+    """How much of stave b's melody (as 4-step shapes) already appeared in stave a: 0 = nothing, 1 = all."""
+    gb = ngrams(b, n)
+    return len(gb & ngrams(a, n)) / len(gb) if gb else 0.0
+
+
 def as_lists(ph):
     """Server phrases (quarter notes, {d,a} objects) -> pipeline phrases (ticks, [d,a] lists)."""
     out = {"meter": ph["ts"], "fifths": ph["fifths"], "bars": 4}
@@ -61,12 +67,16 @@ def as_lists(ph):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--style", default="chopin")
-    ap.add_argument("--run", default=None, help="training run to check (default: the style)")
+    ap.add_argument("--data", default=None, help="dataset to compare against for copying (default: the style)")
+    ap.add_argument("--run", default=None, help="training run to check (default: the dataset name)")
     ap.add_argument("--n", type=int, default=30, help="staves per level")
     ap.add_argument("--ngram", type=int, default=10, help="melody steps that count as a copied passage")
+    ap.add_argument("--feel", default="balanced", choices=["focused", "balanced", "adventurous"])
+    ap.add_argument("--chain", type=int, default=4, help="staves written in a row, each continuing the one before (as in the app)")
     ap.add_argument("--server", default=default_server())
     args = ap.parse_args()
-    args.run = args.run or args.style
+    args.data = args.data or args.style
+    args.run = args.run or args.data
 
     exp = os.path.join(ROOT, "out", args.run, "export")
     cli = os.path.join(args.server, "ai", "cli.js")
@@ -78,20 +88,29 @@ def main():
     with open(os.path.join(exp, "model.json"), encoding="utf-8") as f:
         spec = music.prepare_levels(json.load(f)["levels"])
 
-    print("Indexing Chopin's melodies...")
+    print("Indexing the real melodies...")
     index = {}
-    with open(os.path.join(ROOT, "data", args.style, "reference.jsonl"), encoding="utf-8") as f:
+    ref_carry, prev = [], {}
+    with open(os.path.join(ROOT, "data", args.data, "reference.jsonl"), encoding="utf-8") as f:
         for line in f:
             r = json.loads(line)
-            for g in ngrams(melody_sig(r["phrase"]), args.ngram):
+            sig = melody_sig(r["phrase"])
+            for g in ngrams(sig, args.ngram):
                 index.setdefault(g, r["piece"])
+            b0 = r["phrase"].get("bar0")
+            if b0 is not None:
+                before = prev.get((r["piece"], b0 - 4))
+                if before is not None:
+                    ref_carry.append(carry(before, sig))
+                prev[(r["piece"], b0)] = sig
 
     total, broken, copied = 0, 0, 0
     examples = []
-    print(f"\n{'level':>5} {'staves':>6} {'rules ok':>9} {'copied':>7} {'notes/bar':>9} {'chords':>7} {'tuplets':>7} {'2 voices':>8} {'grace':>5}  keys / meters")
+    gen_carry = []
+    print(f"\n{'level':>5} {'staves':>6} {'rules ok':>9} {'copied':>7} {'notes/bar':>9} {'chords':>7} {'tuplets':>7} {'2 voices':>8} {'grace':>5} {'carry':>5}  keys / meters")
     for lvl in list(range(1, 11)) + ["free"]:
-        p = subprocess.run(["node", cli, "--dir", exp, "--level", "11" if lvl == "free" else str(lvl), "--n", str(args.n)],
-                           capture_output=True, text=True)
+        p = subprocess.run(["node", cli, "--dir", exp, "--level", "11" if lvl == "free" else str(lvl), "--n", str(args.n),
+                            "--feel", args.feel, "--chain", str(args.chain)], capture_output=True, text=True)
         phrases = [json.loads(x) for x in p.stdout.splitlines() if x.strip()]
         if not phrases:
             print(f"{lvl!s:>5}  generation failed: {p.stderr.strip()[:200]}")
@@ -99,8 +118,13 @@ def main():
         ok = cp = 0
         notes = chords = tup = two = gr = 0
         keys, meters = Counter(), Counter()
+        lv_carry, last = [], None
         for ph in phrases:
             lp = as_lists(ph)
+            sig = melody_sig(lp)
+            if last is not None and last[0] == ph.get("run"):
+                lv_carry.append(carry(last[1], sig))
+            last = (ph.get("run"), sig)
             rules = spec["free"] if lvl == "free" else spec["levels"][lvl - 1]
             if music.fits_level(lp, rules):
                 ok += 1
@@ -119,11 +143,16 @@ def main():
             meters[ph["ts"]] += 1
         n = len(phrases)
         total += n; broken += n - ok; copied += cp
-        print(f"{lvl!s:>5} {n:>6} {ok / n:>8.0%} {cp / n:>7.0%} {notes / n / 4:>9.1f} {chords / n:>7.1f} {tup / n:>7.0%} {two / n:>8.0%} {gr / n:>5.0%}  "
+        gen_carry += lv_carry
+        cy = f"{sum(lv_carry) / len(lv_carry):.2f}" if lv_carry else "-"
+        print(f"{lvl!s:>5} {n:>6} {ok / n:>8.0%} {cp / n:>7.0%} {notes / n / 4:>9.1f} {chords / n:>7.1f} {tup / n:>7.0%} {two / n:>8.0%} {gr / n:>5.0%} {cy:>5}  "
               f"{dict(sorted(keys.items()))} / {dict(meters)}")
 
     print(f"\nRules met: {(total - broken) / max(1, total):.1%} of {total} staves.")
-    print(f"Copied passages ({args.ngram}+ melody steps matching a real Chopin phrase): {copied / max(1, total):.1%}.")
+    print(f"Copied passages ({args.ngram}+ melody steps matching a real phrase): {copied / max(1, total):.1%}.")
+    if gen_carry and ref_carry:
+        print(f"Carry-over between consecutive staves (shared melodic shapes): {sum(gen_carry) / len(gen_carry):.2f}; "
+              f"in the real music: {sum(ref_carry) / len(ref_carry):.2f}. Close to the real value = ideas continue naturally.")
     if examples:
         print("Most similar sources:", ", ".join(f"{p} (level {l})" for l, p in examples[:8]))
     print("\nA few percent of matches is normal (scales and repeated notes recur everywhere).\n"

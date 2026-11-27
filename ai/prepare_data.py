@@ -1,8 +1,8 @@
 """Turn the downloaded scores into training data.
 
   1. Parse every score in data/raw (music21).
-  2. Cut each piece into overlapping 4-bar phrases the app can show (2/4, 3/4 or 4/4; no tuplets
-     or notes faster than sixteenths).
+  2. Cut each piece into overlapping 4-bar phrases. Each phrase is paired with the 4 bars that came
+     before it (the context), so the model learns how music continues from one stave to the next.
   3. Add simplified versions (melody + bass, simpler rhythm, right hand only) so the easy levels
      have Chopin-derived examples.
   4. Copy each phrase into all key signatures from 6 flats to 6 sharps.
@@ -11,13 +11,15 @@
 Original (unsimplified) phrases are also stored with the token LEVEL_free, for the app's Free level.
 
 Output (data/<style>/): train.bin, train_idx.npy, val.bin, val_idx.npy, meta.json, reference.jsonl
-Run:  python prepare_data.py                       (Chopin, from data/raw/chopin)
-      python prepare_data.py --style yiruma        (your own files in data/raw/yiruma)
+Run:  python prepare_data.py                                          (all of Chopin)
+      python prepare_data.py --include prelude --name chopin-preludes   (only the Preludes)
+      python prepare_data.py --style romantic                           (the Romantic collection)
 """
 import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -57,23 +59,31 @@ def is_val(path, frac):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--style", default="chopin", choices=tokens.STYLES)
+    ap.add_argument("--style", default="chopin", choices=tokens.STYLE_CHOICES)
     ap.add_argument("--raw", default=None, help="folder of scores (default data/raw/<style>)")
+    ap.add_argument("--include", default=None, help="only files whose name matches this text or pattern, e.g. prelude or 'waltz|valse'")
+    ap.add_argument("--name", default=None, help="name of this dataset (default: the style); saved in data/<name>")
     ap.add_argument("--stride", type=int, default=0, help="bars between phrase windows (default 2; 1 for small collections)")
     ap.add_argument("--val", type=float, default=0.07, help="share of pieces held out for validation")
     ap.add_argument("--keys", type=int, default=6, help="transpose to key signatures -K..K")
+    ap.add_argument("--no-context", type=float, default=0.2, help="share of phrases also kept without context, so a first stave can be written from nothing")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--limit", type=int, default=0, help="only use the first N files (quick tests)")
     args = ap.parse_args()
 
     RAW = args.raw or os.path.join(ROOT, "data", "raw", args.style)
-    OUT = os.path.join(ROOT, "data", args.style)
+    dsname = args.name or args.style
+    OUT = os.path.join(ROOT, "data", dsname)
     os.makedirs(OUT, exist_ok=True)
     files = sorted(os.path.join(dp, f) for dp, _, fs in os.walk(RAW) for f in fs if f.lower().endswith(EXTS))
+    if args.include:
+        pat = re.compile(args.include, re.I)
+        files = [f for f in files if pat.search(os.path.relpath(f, RAW))]
+        print(f"Using {len(files)} files matching '{args.include}'.")
     if args.limit:
         files = files[:args.limit]
     if not files:
-        hint = "Run: python get_data.py" if args.style == "chopin" else f"Put your MusicXML or MIDI files in {RAW}"
+        hint = f"Run: python get_data.py --style {args.style}" if args.style in ("chopin", "romantic") else f"Put your MusicXML or MIDI files in {RAW}"
         sys.exit(f"No scores found in {RAW}. {hint}")
     stride = args.stride or (1 if len(files) < 60 else 2)
     spec = music.load_levels(os.path.join(ROOT, "levels.json"))
@@ -91,6 +101,9 @@ def main():
                 pieces.append((path, phrases))
     print(f"Parsed in {time.time() - t0:.0f}s")
 
+    val_pieces = {p for p, _ in pieces if is_val(p, args.val)}
+    if not val_pieces and len(pieces) > 3:  # small datasets: still hold out one piece to measure progress
+        val_pieces = {min((p for p, _ in pieces), key=lambda p: hashlib.md5(os.path.basename(p).encode()).hexdigest())}
     splits = {"train": [], "val": []}
     seen = set()
     level_counts = {"train": Counter(), "val": Counter()}
@@ -99,36 +112,58 @@ def main():
     orig_keys = Counter()
     ref = open(os.path.join(OUT, "reference.jsonl"), "w", encoding="utf-8")
     n_phr = 0
+    def add(split, seq, lab, meter, fifths):
+        if len(seq) > MAX_LEN:
+            return False
+        key = hashlib.md5(np.asarray(seq, dtype=np.uint16).tobytes()).digest()
+        if key in seen:
+            return False
+        seen.add(key)
+        splits[split].append(seq)
+        level_counts[split][lab] += 1
+        if split == "train" and lab != "free":
+            meter_by_level.setdefault(lab, Counter())[meter] += 1
+            key_counts[fifths] += 1
+        return True
+
+    n_ctx = 0
     for path, phrases in pieces:
-        split = "val" if is_val(path, args.val) else "train"
+        split = "val" if path in val_pieces else "train"
+        by_bar = {ph["bar0"]: ph for ph in phrases}
         for ph in phrases:
             n_phr += 1
             ref.write(json.dumps({"piece": os.path.basename(path), "phrase": ph}) + "\n")
             if split == "train":
                 orig_keys[ph["fifths"]] += 1
                 meter_by_level.setdefault("free", Counter())[ph["meter"]] += 1
-            for vi, var in enumerate(music.variants(ph)):
+            prev = by_bar.get(ph["bar0"] - ph["bars"])
+            if prev is not None and (prev["meter"] != ph["meter"] or prev["fifths"] != ph["fifths"]):
+                prev = None
+            prev_vars = music.variant_list(prev) if prev is not None else None
+            h = int(hashlib.md5(f"{path}:{ph['bar0']}".encode()).hexdigest(), 16) % 1000
+            also_plain = prev is None or h < 1000 * args.no_context
+            for vi, var in enumerate(music.variant_list(ph)):
+                if var is None:
+                    continue
+                cvar = prev_vars[vi] if prev_vars else None
                 for f in range(-args.keys, args.keys + 1):
                     tp = var if f == var["fifths"] else music.transpose(var, f)
-                    if tp is None:
+                    if tp is None or not tokens.fits(tp):
                         continue
                     lvl = music.phrase_level(tp, spec)
                     if not tp["lh"] and ph["lh"] and lvl != 1:
                         continue  # right-hand-only versions are only for level 1
+                    ctx = None
+                    if cvar is not None:
+                        ctx = cvar if f == cvar["fifths"] else music.transpose(cvar, f)
+                        if ctx is not None and not tokens.fits(ctx):
+                            ctx = None
                     labels = [lvl] + (["free"] if vi == 0 else [])  # originals also teach the Free level
                     for lab in labels:
-                        seq = tokens.encode(tp, lab, args.style)
-                        if len(seq) > MAX_LEN:
-                            continue
-                        key = hashlib.md5(np.asarray(seq, dtype=np.uint16).tobytes()).digest()
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        splits[split].append(seq)
-                        level_counts[split][lab] += 1
-                        if split == "train" and lab != "free":
-                            meter_by_level.setdefault(lab, Counter())[tp["meter"]] += 1
-                            key_counts[tp["fifths"]] += 1
+                        if ctx is not None and add(split, tokens.encode(tp, lab, args.style, ctx), lab, tp["meter"], tp["fifths"]):
+                            n_ctx += 1
+                        if ctx is None or also_plain:
+                            add(split, tokens.encode(tp, lab, args.style), lab, tp["meter"], tp["fifths"])
     ref.close()
 
     for split, seqs in splits.items():
@@ -147,7 +182,11 @@ def main():
     meta = {
         "vocab": tokens.VOCAB,
         "format": tokens.FORMAT,
+        "context": True,
+        "with_context": n_ctx,
         "style": args.style,
+        "dataset": dsname,
+        "include": args.include,
         "orig_keys": {str(k): v for k, v in sorted(orig_keys.items())},
         "pieces": len(pieces),
         "phrases": n_phr,
@@ -167,7 +206,8 @@ def main():
           f"{meta['sequences'].get('val', 0)} validation sequences ({meta['tokens']['train']:,} training tokens, "
           f"average {meta['mean_len']:.0f} tokens).")
     print("Training sequences per level:", ", ".join(f"{k}: {v}" for k, v in meta["level_counts"].items()))
-    nxt = "python train.py" if args.style == "chopin" else f"python train.py --style {args.style} --init-from chopin"
+    print(f"{n_ctx:,} sequences include the 4 bars before them (context).")
+    nxt = {"chopin": "python train.py", "romantic": "python train.py --style romantic"}.get(dsname, f"python train.py --data {dsname} --init-from chopin")
     print(f"\nDone. Next: {nxt}")
 
 

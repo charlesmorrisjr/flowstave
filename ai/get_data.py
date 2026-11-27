@@ -1,15 +1,27 @@
-"""Download the Chopin scores used for training into ./data/raw/chopin.
+"""Download the scores used for training into ./data/raw/<style>.
+
+  python get_data.py                    Chopin (data/raw/chopin)
+  python get_data.py --style romantic   the Romantic collection (data/raw/romantic): all of the Chopin
+                                        sources plus original piano works by Schumann, Schubert, Liszt,
+                                        Mendelssohn, Brahms, Grieg, Tchaikovsky, Rachmaninoff,
+                                        Scriabin, Mussorgsky, Balakirev, Burgmüller and others
 
 Sources (free for personal, non-commercial use; see README for licences):
   - Craig Sapp: Chopin Preludes Op. 28 (Humdrum **kern)
   - Craig Sapp: Chopin Mazurkas (Humdrum **kern)
   - ASAP dataset: Chopin score files (MusicXML) for Ballades, Etudes, Scherzos, Sonatas and more
-  - Mutopia Project: 5 Nocturnes and 2 Waltzes (included in extra/mutopia, copied in)
+  - Mutopia Project: 5 Nocturnes, 2 Waltzes and the Prelude Op. 45 (included in extra/mutopia, copied in)
   - Optional, with --pdmx: more Nocturnes and Waltzes from PDMX, public-domain MuseScore
     editions (downloads about 2.1 GB once; only the matching scores are kept)
 
+Romantic sources: the Chopin sources above; the ASAP dataset's Romantic composers (MusicXML;
+transcriptions such as Liszt's Paganini études and Glinka's The Lark are left out); 121 original piano
+pieces from the Mutopia Project (included in extra/romantic, see CREDITS.md there); with --pdmx, the
+public-domain MuseScore editions of original piano works by Romantic composers.
+
 Run:  python get_data.py
       python get_data.py --pdmx
+      python get_data.py --style romantic --pdmx
 """
 import argparse
 import re
@@ -24,7 +36,7 @@ import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-RAW = os.path.join(ROOT, "data", "raw", "chopin")
+RAW = os.path.join(ROOT, "data", "raw", "chopin")  # set from --style in main()
 UA = {"User-Agent": "flowstave/1.0"}
 
 RAW_BASE = "https://raw.githubusercontent.com/"
@@ -67,12 +79,17 @@ def get_kern(name, base, files):
     print(f"{name}: {n} files")
 
 
-def get_asap():
-    dest = os.path.join(RAW, "asap-chopin")
+ROMANTIC_ASAP = ["Chopin", "Schumann", "Schubert", "Liszt", "Brahms", "Rachmaninoff", "Scriabin", "Balakirev"]
+ASAP_SKIP = re.compile(r"Glinka|Paganini|_repeat/|no_repeat|no_first_repeat", re.I)  # transcriptions; duplicate versions
+
+
+def get_asap(composers=("Chopin",)):
+    dest = os.path.join(RAW, "asap-chopin" if list(composers) == ["Chopin"] else "asap")
     os.makedirs(dest, exist_ok=True)
     print("asap: reading the file list...")
     rows = list(csv.DictReader(io.StringIO(fetch(ASAP_META).decode("utf-8"))))
-    paths = sorted({r["xml_score"] for r in rows if r.get("composer") == "Chopin" and r.get("xml_score")})
+    paths = sorted({r["xml_score"] for r in rows if r.get("composer") in composers and r.get("xml_score")
+                    and not ASAP_SKIP.search(r["xml_score"])})
     n = 0
     for p in paths:
         out = os.path.join(dest, p.replace("/", "__"))
@@ -87,24 +104,36 @@ def get_asap():
         with open(out, "wb") as f:
             f.write(data)
         n += 1
-    print(f"asap: {n} Chopin scores")
+    print(f"asap: {n} scores ({', '.join(composers)})")
 
 
-def get_mutopia():
-    src = os.path.join(ROOT, "extra", "mutopia")
-    dest = os.path.join(RAW, "mutopia")
+def get_mutopia(folder="mutopia", what="Nocturnes, Waltzes, Prelude Op. 45"):
+    src = os.path.join(ROOT, "extra", folder)
+    dest = os.path.join(RAW, "mutopia" if folder == "mutopia" else "mutopia-" + folder)
     os.makedirs(dest, exist_ok=True)
     n = 0
     for f in sorted(os.listdir(src)) if os.path.isdir(src) else []:
         if f.lower().endswith(".mid"):
             shutil.copy2(os.path.join(src, f), os.path.join(dest, f))
             n += 1
-    print(f"mutopia: {n} Nocturnes and Waltzes")
+    print(f"mutopia: {n} pieces ({what})")
 
 
 # ---------------------------------------------------------------- PDMX (optional)
 PDMX_URL = "https://zenodo.org/records/15571083/files/{}?download=1"
 GENRE = re.compile(r"noct|notturn|waltz|valse|walzer|vals\b", re.I)
+ROMANTIC_WHO = re.compile(r"chopin|schumann|schubert|liszt|mendelssohn|brahms|grieg|tchaikovsk|tschaikowsk|rachmanin|scriabin|"
+                          r"skrjabin|john field|alkan|franck|faur[eé]|dvo[rř][aá]k|mussorgsk|moussorgsk|albeniz|alb[eé]niz|granados|"
+                          r"burgm[uü]ller|stephen heller|gottschalk|smetana|balakirev|borodin|l[iy]adov|saint-sa[eë]ns|chaminade|"
+                          r"moszkowski|paderewski|sibelius|glazunov|arensky|lyapunov|\breger\b|mendelsohn|hensel|wieck|\bgade\b|"
+                          r"rubinstein|\bweber\b|hummel|kalkbrenner|thalberg|henselt|sgambati|martucci|chabrier", re.I)
+# Not original piano music: famous orchestral, opera and song pieces that are only arranged for piano.
+ROMANTIC_REJECT = re.compile(r"swan lake|nutcracker|sleeping beauty|peer gynt|mountain king|morning mood|concert|symphon|ave maria|"
+                             r"st[aä]ndchen|serenade|erlk[oö]nig|forelle|trout|(?<!ohne )(?<!without )\blied(er)?\b(?! ohne)|\bsong\b(?! without)|"
+                             r"hungarian dance|ungarische t[aä]nze|slavonic dance|new world|wiegenlied|cradle|lullaby|wedding march|"
+                             r"hochzeitsmarsch|midsummer|overture|ouvert|opera|\baria\b|1812|marche slave|trio|quintet|carmen|"
+                             r"finlandia|valse triste|danse macabre|carnival of the animals|the swan|le cygne|requiem|mass\b|"
+                             r"theme from|main theme|anime|game|film|movie|piano tiles|medley|mashup|beginner|easy", re.I)
 REJECT = re.compile(r"easy|simplif|beginner|arr\.|arrang|duet|4 hands|four hands|violin|cello|guitar|flute|orchestra|"
                     r"string|quartet|choir|lofi|lo-fi|remix|jazz|cover|ukulele|harp|organ|accordion|vocal|sax|clarinet|trumpet", re.I)
 
@@ -137,8 +166,9 @@ def download_big(url, path):
     print(f"\r  {os.path.basename(path)}: {done / 1e6:,.0f} MB, done.          ")
 
 
-def get_pdmx(per_piece=2, keep=False):
-    """Pick Chopin Nocturnes and Waltzes for piano out of PDMX and keep only those scores."""
+def get_pdmx(per_piece=2, keep=False, romantic=False):
+    """Pick Chopin Nocturnes and Waltzes (or, with romantic=True, original piano works by Romantic
+    composers) for piano out of PDMX and keep only those scores."""
     work = os.path.join(ROOT, "data", "pdmx")
     dest = os.path.join(RAW, "pdmx")
     os.makedirs(work, exist_ok=True)
@@ -154,8 +184,15 @@ def get_pdmx(per_piece=2, keep=False):
             g = lambda k: (r.get(k) or "").strip()
             who = " ".join(g(k) for k in ("composer_name", "artist_name", "title", "song_name", "subtitle")).lower()
             name = " ".join(g(k) for k in ("title", "song_name", "subtitle"))
-            if "chopin" not in who or not GENRE.search(name) or REJECT.search(name + " " + g("tags")):
+            if romantic:
+                m = ROMANTIC_WHO.search(who)
+                if not m or REJECT.search(name + " " + g("tags")) or ROMANTIC_REJECT.search(name):
+                    continue
+                composer = re.sub(r"[^a-z]+", "", m.group(0).lower())[:12]
+            elif "chopin" not in who or not GENRE.search(name) or REJECT.search(name + " " + g("tags")):
                 continue
+            else:
+                composer = "chopin"
             if g("subset:no_license_conflict").lower() not in ("true", "1"):
                 continue
             mxl = g("mxl")
@@ -169,6 +206,7 @@ def get_pdmx(per_piece=2, keep=False):
             # Group versions of the same piece (by opus and number when given), keep the best few.
             m = re.search(r"op(?:us)?\.?\s*(\d+)\D{0,12}?(?:no|nr|n°|num|#)\.?\s*(\d+)", name, re.I)
             key = f"op{m.group(1)}-{m.group(2)}" if m else re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()[:60]
+            key = f"{composer}-{key}"
             score = (g("is_best_unique_arrangement").lower() == "true", float(g("rating") or 0), float(g("n_favorites") or 0))
             chosen.setdefault(key, []).append((score, mxl.lstrip("./"), name))
     wanted = {}
@@ -204,17 +242,23 @@ def get_pdmx(per_piece=2, keep=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pdmx", action="store_true", help="also fetch Nocturnes and Waltzes from PDMX (about 2.1 GB download)")
+    ap.add_argument("--style", default="chopin", choices=["chopin", "romantic"])
+    ap.add_argument("--pdmx", action="store_true", help="also fetch scores from PDMX (about 2.1 GB download): Chopin Nocturnes and Waltzes, or Romantic piano works")
     ap.add_argument("--keep-pdmx", action="store_true", help="keep the PDMX archive after extracting")
     args = ap.parse_args()
+    global RAW
+    RAW = os.path.join(ROOT, "data", "raw", args.style)
     os.makedirs(RAW, exist_ok=True)
+    romantic = args.style == "romantic"
     for name, base, files in KERN:
         get_kern(name, base, files)
-    get_asap()
+    get_asap(ROMANTIC_ASAP if romantic else ("Chopin",))
     get_mutopia()
+    if romantic:
+        get_mutopia("romantic", "Schumann, Schubert, Mendelssohn, Grieg, Tchaikovsky, Rachmaninoff and more")
     if args.pdmx:
-        get_pdmx(keep=args.keep_pdmx)
-    print("\nDone. Next: python prepare_data.py")
+        get_pdmx(per_piece=1 if romantic else 2, keep=args.keep_pdmx, romantic=romantic)
+    print("\nDone. Next: python prepare_data.py" + (" --style romantic" if romantic else ""))
 
 
 if __name__ == "__main__":

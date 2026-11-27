@@ -84,6 +84,9 @@ function serveStatic(req, res) {
     const opts = {};  // keep the session's key and time signature when the app asks for them
     if (q.get('fifths') !== null && /^-?\d+$/.test(q.get('fifths'))) opts.fifths = Number(q.get('fifths'));
     if (q.get('meter') && /^\d+\/\d+$/.test(q.get('meter'))) opts.meter = q.get('meter');
+    if (ai.FEELS[q.get('feel')]) opts.feel = q.get('feel');               // focused / balanced / adventurous
+    const ctx = q.get('ctx');                                              // the previous stave, to continue from
+    if (ctx && /^\d+(,\d+){0,700}$/.test(ctx) && opts.fifths != null && opts.meter) opts.ctx = ctx;
     ai.generate(q.get('model') || '', level, count, opts).then(phrases => {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(JSON.stringify({ phrases, ms: Math.round(now() - t0) }));

@@ -1,6 +1,10 @@
-# Flowstave AI: a Chopin-style music model for sight-reading
+# Flowstave AI: Chopin and Romantic music models for sight-reading
 
-This folder (`ai/`) trains a small AI model on Chopin's piano music and installs it into the server. The app can then generate Chopin-style staves at all 10 levels.
+This folder (`ai/`) trains small AI models and installs them into the server. The app can then generate staves in their style at all 10 levels. There are two collections:
+- **Chopin:** Chopin's piano music only.
+- **Romantic:** original piano music from the whole Romantic era (see [The Romantic model](#the-romantic-model)).
+
+Each stave is written as the **continuation of the one before**, so a theme can be answered, repeated or developed from stave to stave instead of every stave starting from nothing.
 
 The model only supplies the style. The level rules in `levels.json` are hard limits while it writes, so a level-3 stave can't contain level-7 rhythms or notes outside the range. They cover range, rhythms, chord size, key signature and accidentals.
 
@@ -19,6 +23,24 @@ flowstave/
 ├── ai/        <- this folder: data, training, export
 └── server/    <- the app server
 ```
+
+## Updating from the previous version
+
+This version changes the training data: each phrase now comes with the 4 bars before it (the context). **Models you trained before still work in the app**, but without continuity between staves. To upgrade your Chopin model you don't need to start over. Prepare the data again, then fine-tune your model on it; it learns the new part quickly and stops by itself:
+
+```
+python prepare_data.py
+python train.py --data chopin --init-from chopin --run chopin-v2
+python export_onnx.py --run chopin-v2 --data chopin
+python evaluate.py --run chopin-v2 --data chopin
+python install_model.py --run chopin-v2 --name chopin
+```
+
+`--name chopin` replaces the old model in the app; leave it out to keep both and compare them. Your original model stays in `out/chopin`.
+
+The validation loss of the new data isn't comparable with your old numbers: the context makes the next notes easier to predict, so expect a lower figure.
+
+For the Préludes model, prepare its data again too (`python prepare_data.py --include prelude --name chopin-preludes`) and fine-tune from the upgraded model with `--init-from chopin-v2`.
 
 ## What happens, start to finish
 
@@ -131,9 +153,64 @@ python install_model.py
   - **rules met:** should be 100%.
   - **copied passages:** how often a generated melody repeats 10 or more notes of a real Chopin phrase, in any key. A few percent is normal, because scales and repeated notes recur everywhere. Much more means the model memorised too much, so train with fewer epochs.
   - **notes per bar, chords, and the share of staves with tuplets, two voices and grace notes**, plus keys and meters, for each level and for Free.
-- **`install_model.py`** copies the model to `server/models/chopin/`.
+  - **carry:** how much of each stave's melody (as 4-note shapes) already appeared in the stave before it, as in the app. It's compared with the same figure for the real music. Near zero means the staves don't connect; much higher than the real figure means the model repeats itself.
+
+  Staves are written in runs of 4 (`--chain`) with the app's default **Balanced** feel; try `--feel focused` or `--feel adventurous` to compare.
+- **`install_model.py`** copies the model to `server/models/<run>/` (use `--name` to choose another folder name).
 
 Restart the server. Its window should show `AI music models: chopin`. In the app, choose **Music: Chopin (AI)**, then press **Listen** to hear the two staves on screen.
+
+## The Romantic model
+
+A second model, trained on original solo piano works from the Romantic era. It knows more music than the Chopin model, so its harmony and phrasing are more varied, and it makes a strong starting point for fine-tuning.
+
+```
+python get_data.py --style romantic
+python prepare_data.py --style romantic
+python train.py --style romantic
+python export_onnx.py --style romantic
+python evaluate.py --style romantic
+python install_model.py --run romantic
+```
+
+It appears as **"Romantic (AI)"** in the Music menu.
+
+**What's in it** (about 280 pieces, 12,000 phrases, 1.4 million training sequences):
+- **All of the Chopin sources.**
+- **ASAP dataset (MusicXML):** Schumann (Kreisleriana, Arabeske, Toccata), Schubert (Impromptus, Moments musicaux, sonatas, the Wanderer Fantasy), Liszt (Transcendental Études, Ballade No. 2, the Sonata, Années de pèlerinage, a Hungarian Rhapsody, Mephisto Waltz), Brahms, Rachmaninoff's Préludes, Scriabin and Balakirev's Islamey. Transcriptions (Liszt's Paganini Études, Glinka's The Lark) are left out.
+- **121 Mutopia Project pieces**, included in `extra/romantic` (credits and licences in `CREDITS.md` there): Schumann's Kinderszenen and Album for the Young, Schubert's Impromptus D. 935 and Marches militaires, Mendelssohn's Songs without Words, Grieg's Lyric Pieces, Tchaikovsky's The Seasons, Rachmaninoff's Préludes Op. 23, Scriabin's Préludes, Mussorgsky's Pictures at an Exhibition, Brahms' Waltzes, Liszt's Consolations, Burgmüller's Études Op. 100, Rimsky-Korsakov, Alkan, and Czerny's melodic studies Op. 840.
+- **Optional, with `--pdmx`:** public-domain MuseScore editions of original piano works by Romantic composers from PDMX. This downloads about 2.1 GB once. Arrangements of orchestral works, operas and songs are filtered out by title, and only the best-rated edition of each piece is kept.
+
+Training takes longer than Chopin alone: about 2–4 hours for the default 5 epochs on your graphics card. It saves `best.pt` whenever the validation loss improves, so you can stop early with Ctrl+C. The prepared data needs about 700 MB of disk space.
+
+**Using it to improve the Chopin model.** A model that has learned the whole Romantic language first, then specialises, usually beats one trained on Chopin alone, because there is so little Chopin to learn from. After training the Romantic model:
+
+```
+python train.py --data chopin --init-from romantic --run chopin-romantic
+python export_onnx.py --run chopin-romantic --data chopin --label "Chopin from Romantic (AI)"
+python install_model.py --run chopin-romantic
+```
+
+You can do the same for one composer: `--include` matches folder and file names, for example `python prepare_data.py --style romantic --include schumann --name schumann`, then `python train.py --data schumann --init-from romantic`.
+
+## Fine-tuning on one genre (for example, the Préludes)
+
+Once your full Chopin model is trained, you can make a second, more focused model that keeps everything it learned and adds the character of one genre:
+
+```
+python prepare_data.py --include prelude --name chopin-preludes
+python train.py --data chopin-preludes --init-from chopin
+python export_onnx.py --run chopin-preludes --data chopin-preludes
+python evaluate.py --run chopin-preludes --data chopin-preludes
+python install_model.py --run chopin-preludes
+```
+
+- **`--include prelude`** keeps only files whose name contains "prelude". That's the 24 Préludes Op. 28 plus the Prélude Op. 45, giving about 870 phrases. The pattern can be any text or regular expression, for example `"waltz|valse"`.
+- **`--name chopin-preludes`** saves this dataset separately in `data/chopin-preludes`, so your full Chopin data is untouched.
+- **`--init-from chopin`** starts from your trained model (`out/chopin/best.pt`). Fine-tuning uses a gentler learning rate and checks progress every 200 steps. It first reports the base model's validation loss on the Préludes, then **stops by itself** after 6 checkpoints without improvement. Usually that takes minutes, not hours.
+- The result is installed as **"Chopin Préludes (AI)"**, next to your full model in the Music menu, so you can compare them with Listen.
+
+Want it more Prélude-like? Train longer with `--patience 12`. Hearing too many real Prélude passages (check the "copied" figure in `evaluate.py`)? Stop earlier, or use `--dropout 0.25`. You can rerun fine-tuning any time with different settings; it always starts again from your full model.
 
 ## How it works
 
@@ -150,8 +227,10 @@ Restart the server. Its window should show `AI music models: chopin`. In the app
 5. **Levels.** Each phrase is labelled with the easiest level whose rules it meets (`levels.json`). Original phrases are also labelled `free`, for the Free level.
 6. **Tokens.** Each phrase becomes a sequence of tokens: `BOS STYLE_chopin LEVEL_free KEY_-2 METER_6_8 BAR POS_0 RH GR NOTE_37_0 DUR_12 NOTE_36_0 RH2 DUR_36 NOTE_30_0 LH DUR_12 NOTE_18_0 …`. Here RH2 is the right hand's lower voice, GR starts grace notes, and durations are in ticks.
 7. **Model.** A small transformer (GPT-style, about 11M parameters) learns to predict the next token.
-8. **Generation.** In the server, the model writes one token at a time. Any token that would break the level's rules is removed before each choice. Easy levels, where real Chopin data is scarce, borrow the style of the nearest level with enough data, while the rules still hold to the level you're on.
-9. **Free level.** The model is asked for `LEVEL_free` music, in a key and meter picked in proportion to how often Chopin used them. Only notation limits apply: the piano's range, rhythms the app can show, at most four notes per hand per chord, within a hand's reach (a tenth), and bars that add up.
+8. **Context.** Each phrase is also stored with the 4 bars that come before it in the piece: `… METER_6_8 CTX <previous 4 bars> NEXT <this phrase> EOS`. A fifth of them are also kept without it, so the model can write a first stave from nothing. In the app, each new stave is written as the continuation of the previous one.
+9. **Generation.** In the server, the model writes one token at a time. Any token that would break the level's rules is removed before each choice. Easy levels, where real Chopin data is scarce, borrow the style of the nearest level with enough data, while the rules still hold to the level you're on.
+10. **Best of several.** The server writes several candidate staves (2, 4 or 6, depending on the **AI feel** setting) and keeps the one the model itself rates most natural: the highest average probability of its notes. A candidate that only repeats the previous stave is penalised, or rejected if 3 or more of its 4 bars are identical.
+11. **Free level.** The model is asked for `LEVEL_free` music, in a key and meter picked in proportion to how often Chopin used them. Only notation limits apply: the piano's range, rhythms the app can show, at most four notes per hand per chord, within a hand's reach (a tenth), and bars that add up.
 
 What still can't be reproduced:
 - quintuplets, septuplets and Chopin's long free-rhythm runs (such as 11 or 22 notes against a beat)
@@ -170,8 +249,10 @@ Bars containing any of these are left out of the training phrases.
 - **An error mentioning attention or `scaled_dot_product`:** add `--no-sdpa`.
 - **The download fails:** run `python get_data.py` again; it skips files it already has.
 - **The music sounds random:** the model needs more training. Check that the validation loss is well below 1.0, train longer, or try `--preset base` if you used `small`.
+- **"This model uses the older token format 2"** when exporting: the model was trained with the previous version. Upgrade it as described in [Updating from the previous version](#updating-from-the-previous-version).
+- **"The data … was prepared by an older version"** when training: run `prepare_data.py` again with the same options.
 - **The music sounds too much like real Chopin passages:** check `evaluate.py`'s "copied" figure, then train with fewer epochs or more dropout, for example `--dropout 0.25`.
 
 ## Licences
 
-Everything here is for personal, non-commercial use. The ASAP dataset is licensed CC BY-NC-SA 4.0. Craig Sapp's Chopin editions are free research editions; check their repositories for the exact terms. The Mutopia Nocturnes and Waltzes are public domain or CC BY-SA; see `extra/mutopia/CREDITS.md` for each editor and licence. PDMX is CC BY 4.0, and its scores are public domain. Chopin's music itself is in the public domain. The music font used by the app, Leland, is under the SIL Open Font License.
+Everything here is for personal, non-commercial use. The ASAP dataset is licensed CC BY-NC-SA 4.0. Craig Sapp's Chopin editions are free research editions; check their repositories for the exact terms. The Mutopia files are public domain, CC BY or CC BY-SA; see `extra/mutopia/CREDITS.md` and `extra/romantic/CREDITS.md` for each editor and licence. PDMX is CC BY 4.0, and its scores are public domain. The composers' music itself is in the public domain. The music font used by the app, Leland, is under the SIL Open Font License.

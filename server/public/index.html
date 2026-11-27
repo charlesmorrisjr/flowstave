@@ -111,7 +111,9 @@ button,select{font:inherit;color:inherit}
   <label><input type="checkbox" id="oMidiSound"> Sound for MIDI keyboard</label>
   <label>Piano <select id="oPiano"><option value="salamander">Grand piano (sampled)</option><option value="synth">Simple synth</option></select> <span id="pianoStat"></span></label>
   <label><input type="checkbox" id="oPedal"> Pedal when listening</label>
+  <label><input type="checkbox" id="oExpr"> Expressive playback</label>
   <label>Music <select id="oMusic"><option value="rules">Built-in rules</option><option value="yiruma">Yiruma-style (rules)</option></select></label>
+  <label id="feelBox" hidden>AI feel <select id="oFeel"><option value="focused">Focused (safer, more like the composer)</option><option value="balanced">Balanced</option><option value="adventurous">Adventurous (more surprises)</option></select></label>
   <label>Timing <select id="oTol"><option value="relaxed">Relaxed</option><option value="normal">Normal</option><option value="strict">Strict</option></select></label>
   <label id="wakeBox"><input type="checkbox" id="oWake"> Keep screen awake</label><span id="wakeTip" hidden>Tip: set the iPad's Auto-Lock to Never while you practise.</span>
   <div class="status"><span id="midiStat">Connecting to the Flowstave server…</span></div>
@@ -508,13 +510,14 @@ function renderLine(slot,fresh){
 }
 /* ---------- state ---------- */
 const TOL={relaxed:180,normal:130,strict:90};
-const st={rlock:null,piano:'salamander',pedal:true,music:'rules',wake:true,level:0,mode:'wait',bpm:60,tol:'normal',metro:true,sound:true,midiSound:false,oct:4,lines:[null,null],cur:0,gi:0,streak:0,last:null,running:false,busy:false,T0:[0,0],fin:null,raf:0,mNext:0};
+const st={rlock:null,piano:'salamander',pedal:true,expr:true,feel:'balanced',music:'rules',wake:true,level:0,mode:'wait',bpm:60,tol:'normal',metro:true,sound:true,midiSound:false,oct:4,lines:[null,null],cur:0,gi:0,streak:0,last:null,running:false,busy:false,T0:[0,0],fin:null,raf:0,mNext:0};
 try{Object.assign(st,JSON.parse(localStorage.getItem('flowstave')||'{}'))}catch(e){}
+if(['focused','balanced','adventurous'].indexOf(st.feel)<0)st.feel='balanced';
 /* Levels 0..9 are levels 1-10; 10 is the Free level (no level limits, outside the level-up path). */
 const FREE=10,FREE_BPM=72;
 const bpmFor=l=>l==FREE?FREE_BPM:LV[l].bpm;
 st.level=Math.max(0,Math.min(FREE,st.level|0));if(!st.bpm)st.bpm=bpmFor(st.level);
-const save=()=>{try{localStorage.setItem('flowstave',JSON.stringify({piano:st.piano,pedal:st.pedal,music:st.music,wake:st.wake,level:st.level,mode:st.mode,bpm:st.bpm,tol:st.tol,metro:st.metro,sound:st.sound,midiSound:st.midiSound,oct:st.oct}))}catch(e){}};
+const save=()=>{try{localStorage.setItem('flowstave',JSON.stringify({piano:st.piano,pedal:st.pedal,expr:st.expr,feel:st.feel,music:st.music,wake:st.wake,level:st.level,mode:st.mode,bpm:st.bpm,tol:st.tol,metro:st.metro,sound:st.sound,midiSound:st.midiSound,oct:st.oct}))}catch(e){}};
 const beatMs=()=>60000/st.bpm,goodWin=()=>Math.min(TOL[st.tol],beatMs()*.3),matchWin=()=>Math.min(Math.max(goodWin()*2.2,260),beatMs()*.9);
 const accOf=L=>{const j=L.stats.good+L.stats.bad+L.stats.extra;return j?L.stats.good/j:null};
 const pct=a=>a==null?'–':Math.round(a*100)+'%';
@@ -531,9 +534,12 @@ function hud(){
 function judge(n,ok){if(n.state)return;n.state=ok?'good':'bad';n.line.stats[n.state]++;const els=n.els.concat(...(n.twins||[]).map(t=>t.els));els.forEach(e=>{e.classList.remove('good','bad');e.classList.add(n.state)});hud()}
 function flag(n){n.flag=true;n.els.forEach(e=>e.classList.add('bad'))}
 /* ---------- where new staves come from: the AI model (prefetched) or the built-in rules ---------- */
-const aiq={models:[],q:[],level:-1,model:'',busy:false,err:null,fallbacks:0,lock:null,sid:0};
+const aiq={models:[],q:[],level:-1,model:'',busy:false,err:null,fallbacks:0,lock:null,sid:0,ctx:null,shownCtx:null};
+/* ctx: the last stave the model wrote (its tokens), sent back so the next stave continues from it.
+   shownCtx: the last stave taken from the queue, to restart the chain when the queue is dropped. */
 /* The key and time signature stay the same for a whole session; New music (or a level change) picks new ones. */
-function resetMusic(){st.rlock=null;st.ylock=null;st.ystave=0;aiq.lock=null;aiq.q=[];aiq.sid++;aiq.busy=false}
+function resetMusic(){st.rlock=null;st.ylock=null;st.ystave=0;aiq.lock=null;aiq.q=[];aiq.sid++;aiq.busy=false;aiq.ctx=null;aiq.shownCtx=null}
+function dropQueue(){aiq.q=[];aiq.sid++;aiq.busy=false;aiq.ctx=aiq.shownCtx}  // keep the key, time and line of music
 function rulesLock(){
  const C=LV[Math.min(st.level,9)],ok=l=>l&&C.keys.includes(l.key)&&C.meters.includes(l.meter);
  if(!ok(st.rlock)){let want=null;
@@ -546,17 +552,19 @@ function aiRefill(){
  if(aiq.level!==st.level||aiq.model!==m.name){resetMusic();aiq.level=st.level;aiq.model=m.name}
  if(aiq.busy||aiq.q.length>=4)return;
  aiq.busy=true;const lvl=st.level,name=m.name,sid=aiq.sid,lock=aiq.lock;
- const url='/api/generate?model='+encodeURIComponent(name)+'&level='+(lvl+1)+'&count=2'+(lock?'&fifths='+lock.fifths+'&meter='+encodeURIComponent(lock.ts):'');
+ const url='/api/generate?model='+encodeURIComponent(name)+'&level='+(lvl+1)+'&count=2&feel='+st.feel+(lock?'&fifths='+lock.fifths+'&meter='+encodeURIComponent(lock.ts)+(aiq.ctx?'&ctx='+aiq.ctx:''):'');
  fetch(url).then(r=>r.json()).then(j=>{
   if(sid!==aiq.sid)return;   // New music was pressed meanwhile: ignore
   aiq.busy=false;if(j.error)throw new Error(j.error);aiq.err=null;
   const ph=j.phrases||[];
   if(!aiq.lock&&ph.length)aiq.lock={fifths:ph[0].fifths,ts:ph[0].ts||ph[0].meter+'/4'};
-  aiq.q.push(...ph.filter(p=>p.fifths===aiq.lock.fifths&&(p.ts||p.meter+'/4')===aiq.lock.ts));aiRefill()})
+  const ok=ph.filter(p=>p.fifths===aiq.lock.fifths&&(p.ts||p.meter+'/4')===aiq.lock.ts);
+  if(ok.length)aiq.ctx=ok[ok.length-1].ctx||null;
+  aiq.q.push(...ok);aiRefill()})
  .catch(e=>{if(sid!==aiq.sid)return;aiq.busy=false;aiq.err=e.message;setTimeout(aiRefill,4000)})}
 function nextLine(){
  if(st.music=='yiruma')return genYiruma(st.level,yLock(st.level));
- if(aiModel()){if(aiq.level===st.level&&aiq.model===st.music&&aiq.q.length){const p=aiq.q.shift();aiRefill();return lineFromPhrase(p)}
+ if(aiModel()){if(aiq.level===st.level&&aiq.model===st.music&&aiq.q.length){const p=aiq.q.shift();aiq.shownCtx=p.ctx||null;aiRefill();return lineFromPhrase(p)}
   aiq.fallbacks++;aiRefill()}
  return genLine(st.level,rulesLock())}
 function waitAI(n,ms){return new Promise(res=>{const t0=Date.now();(function chk(){if(!aiModel()||(aiq.level===st.level&&aiq.q.length>=n)||Date.now()-t0>ms)return res();setTimeout(chk,100)})()})}
@@ -674,23 +682,74 @@ function tone(midi,t,len,vel){ensureAudio();if(!ac)return null;
  g.gain.setTargetAtTime(0,end,rel/3);
  for(const[m,type,v,dt]of[[1,'triangle',1,0],[2,'sine',.4,.7],[3,'sine',.14,-.5],[4,'sine',.06,.3]]){const o=ac.createOscillator(),og=ac.createGain();o.type=type;o.frequency.value=f*m;o.detune.value=dt;og.gain.value=v;o.connect(og).connect(lp);o.start(t0);o.stop(stop);oscs.push(o)}
  lp.connect(g).connect(ac.destination);return {oscs,g}}
-/* ---------- Listen: play the stave the cursor is on, then the other one ---------- */
+/* ---------- Listen: play the stave the cursor is on, then the other one ----------
+   Expressive playback: phrase-shaped dynamics, a singing top line over a softer accompaniment,
+   rubato (a little push in the middle of each stave, a ritardando into its end), pedal changes that
+   follow the harmony, the melody sounding a touch before the accompaniment, and wide chords rolled.
+   Off: strict time and even touch (pedal held to the end of each bar). */
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+function tempoMap(L,b,last){  // seconds at each beat position, with rubato
+ const N=96,secs=[0];
+ for(let k=1;k<=N;k++){const x=(k-.5)/N;
+  let m=1+.06*Math.sin(Math.PI*clamp(x/.75,0,1));                       // move forward, then
+  if(x>.82)m-=(last?.38:.2)*Math.pow((x-.82)/.18,1.6);                    // broaden into the end
+  secs.push(secs[k-1]+L.dur/N*b/m)}
+ const at=t=>{const u=clamp(t/L.dur,0,1)*N,i=Math.min(N-1,Math.floor(u));return secs[i]+(secs[i+1]-secs[i])*(u-i)};
+ const beatAt=sec=>{if(sec<=0)return 0;for(let i=0;i<N;i++)if(sec<secs[i+1])return(i+(sec-secs[i])/(secs[i+1]-secs[i]))*L.dur/N;return L.dur};
+ return{at,beatAt,total:secs[N]}}
+function pedalChanges(L){  // beats where the pedal is changed: new bass note or new harmony
+ const u=beatQ(L),notes=L.graded,ch=[0];let segPc=new Set(),segBass=null;
+ const pts=new Set();for(let t=0;t<L.dur-1e-6;t+=u)pts.add(+t.toFixed(4));
+ for(const n of notes)if(!n.rh)pts.add(+n.t.toFixed(4));
+ for(const c of [...pts].sort((a,b)=>a-b)){
+  const here=notes.filter(n=>n.t>=c-1e-6&&n.t<c+u-1e-6);if(!here.length)continue;
+  const lh=here.filter(n=>!n.rh&&Math.abs(n.t-c)<1e-6),bass=lh.length?Math.min(...lh.map(n=>n.midi)):null;
+  const pcs=new Set(here.map(n=>n.midi%12)),fresh=[...pcs].filter(p=>!segPc.has(p)).length;
+  const onBar=Math.abs(c/L.meter-Math.round(c/L.meter))<1e-6;
+  if(c>0&&((bass!=null&&segBass!=null&&bass%12!==segBass%12)||fresh>=2||(onBar&&fresh>=1))){ch.push(c);segPc=new Set()}
+  pcs.forEach(p=>segPc.add(p));if(bass!=null)segBass=bass}
+ ch.push(L.dur);return ch}
+function perform(L,b,last){  // notes with start/length in seconds and a velocity
+ const out=[],tm=tempoMap(L,b,last),groups=new Map();
+ for(const n of L.graded){const k=n.t.toFixed(4)+(n.rh?'r':'l');if(!groups.has(k))groups.set(k,[]);groups.get(k).push(n)}
+ const mel=L.graded.filter(n=>n.rh&&groups.get(n.t.toFixed(4)+'r').every(q=>q.midi<=n.midi));
+ const melMean=mel.reduce((a,n)=>a+n.midi,0)/Math.max(1,mel.length),melSet=new Set(mel);
+ const ch=pedalChanges(L),nextCh=t=>ch.find(c=>c>t+1e-6)||L.dur;
+ for(const[k,g]of groups){g.sort((a,c)=>a.midi-c.midi);
+  const span=g[g.length-1].midi-g[0].midi,roll=(!g[0].rh&&span>12)||g.length>=4?(g[0].rh?.012:.022):0;
+  g.forEach((n,i)=>{
+   const x=n.t/L.dur,arch=x<.6?Math.sin(x/.6*Math.PI/2):Math.cos((x-.6)/.4*Math.PI/2);
+   const inBar=n.t%L.meter,beat=Math.abs(inBar)<1e-6?.06:Math.abs(inBar%beatQ(L))<1e-6?.02:-.03;
+   let v=melSet.has(n)?.8+clamp((n.midi-melMean)/40,-.08,.1):n.rh?.52:i==0?.6:.44;
+   v=clamp(v*(.82+.24*arch)+beat+(n.dur>=2?.04:0)+(Math.random()-.5)*.05,.15,1);
+   let end=n.t+n.dur;
+   if(st.pedal){const again=L.notes.find(q=>q.midi==n.midi&&q.t>n.t+1e-9),pe=nextCh(n.t);
+    end=Math.max(end,Math.min(again?again.t:L.dur,n.rh&&n.dur<.5*beatQ(L)?Math.min(pe,n.t+Math.max(n.dur*2,.75)):pe))}
+   const s0=tm.at(n.t)+(melSet.has(n)?0:.014)+roll*i+(melSet.has(n)?0:(Math.random()-.5)*.012);
+   const s1=Math.max(s0+.1,tm.at(end)-(st.pedal?.04:0));
+   out.push({midi:n.midi,start:s0,len:(s1-s0)*.98,vel:v})})}
+ for(const g of L.graces){const at=tm.at(g.t)-(g.k-g.i)*.065;out.push({midi:g.midi,start:at,len:.12,vel:g.rh?.6:.45})}
+ return{notes:out,tm}}
+function performPlain(L,b){
+ const out=[];
+ for(const g of L.graces)out.push({midi:g.midi,start:g.t*b-(g.k-g.i)*.07,len:.12,vel:g.rh?.7:.5});
+ for(const n of L.graded){let end=n.t+n.dur;
+  if(st.pedal){const barEnd=(Math.floor(n.t/L.meter+1e-9)+1)*L.meter,again=L.notes.find(q=>q.midi==n.midi&&q.t>n.t+1e-9);end=Math.max(end,Math.min(barEnd,again?again.t:barEnd))}
+  out.push({midi:n.midi,start:n.t*b,len:Math.max(.12,(end-n.t)*b*.97),vel:n.rh?.85:.6})}
+ return{notes:out,tm:{at:t=>t*b,beatAt:sec=>sec/b,total:L.dur*b}}}
 let lis=null;
 function startListen(){
  stopTempo();ensureAudio();if(!ac)return;
  const b=beatMs()/1000,order=[st.cur,1-st.cur],plan=[],voices=[];let at=.25;
- for(const slot of order){const L=st.lines[slot];plan.push({slot,start:at});
-  for(const g of L.graces){const v=tone(g.midi,at+g.t*b-(g.k-g.i)*.07,.12,g.rh?.7:.5);if(v)voices.push(v)}
-  for(const n of L.graded){
-   let end=n.t+n.dur;
-   if(st.pedal){const barEnd=(Math.floor(n.t/L.meter+1e-9)+1)*L.meter,again=L.notes.find(q=>q.midi==n.midi&&q.t>n.t+1e-9);end=Math.max(end,Math.min(barEnd,again?again.t:barEnd))}
-   const v=tone(n.midi,at+n.t*b,Math.max(.12,(end-n.t)*b*.97),n.rh?.85:.6);if(v)voices.push(v)}
-  at+=L.dur*b}
+ order.forEach((slot,i)=>{const L=st.lines[slot],P=st.expr?perform(L,b,i==order.length-1):performPlain(L,b);
+  plan.push({slot,start:at,tm:P.tm});
+  for(const n of P.notes){const v=tone(n.midi,at+n.start,n.len,n.vel);if(v)voices.push(v)}
+  at+=P.tm.total});
  lis={plan,voices,t0:performance.now(),end:at,raf:0};st.busy=true;hud();
  const step=()=>{if(!lis)return;const el=(performance.now()-lis.t0)/1000;
-  if(el>=lis.end+.3){stopListen();return}
+  if(el>=lis.end+.6){stopListen();return}
   let cur=lis.plan[0];for(const p of lis.plan)if(el>=p.start)cur=p;
-  showCursor(cur.slot,cursorX(st.lines[cur.slot],(el-cur.start)/b));lis.raf=requestAnimationFrame(step)};
+  showCursor(cur.slot,cursorX(st.lines[cur.slot],cur.tm.beatAt(el-cur.start)));lis.raf=requestAnimationFrame(step)};
  lis.raf=requestAnimationFrame(step)}
 function stopListen(){if(!lis)return;cancelAnimationFrame(lis.raf);
  const t=ac?ac.currentTime:0;for(const v of lis.voices){try{v.g.gain.cancelScheduledValues(t);v.g.gain.setTargetAtTime(0,t,.03);v.oscs.forEach(o=>o.stop(t+.2))}catch(e){}}
@@ -761,15 +820,18 @@ for(const[id,k]of[['oMetro','metro'],['oSound','sound'],['oMidiSound','midiSound
 $('oTol').value=st.tol;$('oTol').onchange=e=>{st.tol=e.target.value;save()};
 $('oPiano').value=st.piano;$('oPiano').onchange=e=>{st.piano=e.target.value;save();loadPiano();pianoStatus()};
 $('oPedal').checked=st.pedal;$('oPedal').onchange=e=>{st.pedal=e.target.checked;save()};
+$('oExpr').checked=st.expr;$('oExpr').onchange=e=>{st.expr=e.target.checked;save()};
+$('oFeel').value=st.feel;$('oFeel').onchange=e=>{st.feel=e.target.value;save();if(aiModel()){dropQueue();aiRefill()}};
+const feelVis=()=>{$('feelBox').hidden=!aiModel()};
 addEventListener('pointerdown',()=>loadPiano());addEventListener('keydown',()=>loadPiano());
 $('listen').onclick=()=>{if(lis)stopListen();else if(!st.busy)startListen()};
 $('oMusic').value=st.music=='yiruma'?'yiruma':'rules';
-$('oMusic').onchange=e=>{st.music=e.target.value;save();resetMusic();aiq.level=-1;aiRefill();newSession()};
+$('oMusic').onchange=e=>{st.music=e.target.value;save();feelVis();resetMusic();aiq.level=-1;aiRefill();newSession()};
 function loadModels(){if(location.protocol=='file:')return;
  fetch('/api/models').then(r=>r.json()).then(j=>{aiq.models=j.models||[];
   $('oMusic').innerHTML='<option value="rules">Built-in rules</option><option value="yiruma">Yiruma-style (rules)</option>'+aiq.models.map(m=>`<option value="${esc(m.name)}">${esc(m.label)}</option>`).join('');
-  if(aiModel()){$('oMusic').value=st.music;aiRefill();newSession()}else $('oMusic').value=st.music=='yiruma'?'yiruma':'rules';hud()}).catch(()=>{})}
-window.__fs={st,net,aiq,genYiruma,yLock,YLV,PIANO,loadPiano,noteOn,genLine,renderLine,newSession,startTempo,startListen,stopListen,lineFromPhrase};
+  if(aiModel()){$('oMusic').value=st.music;aiRefill();newSession()}else $('oMusic').value=st.music=='yiruma'?'yiruma':'rules';feelVis();hud()}).catch(()=>{})}
+window.__fs={st,net,aiq,perform,pedalChanges,tempoMap,genYiruma,yLock,YLV,PIANO,loadPiano,noteOn,genLine,renderLine,newSession,startTempo,startListen,stopListen,lineFromPhrase};
 connect(); // connect first, so a drawing problem can't stop the MIDI connection
 try{hint();buildSession();loadModels()}catch(e){window.__fsReport&&window.__fsReport('Drawing failed: '+e.message+' | '+String(e.stack||'').split('\n').slice(0,3).join(' / '));}
 window.__fsStarted=true;

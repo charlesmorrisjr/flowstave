@@ -31,11 +31,15 @@ class Step(torch.nn.Module):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--style", default="chopin")
-    ap.add_argument("--run", default=None, help="training run to export (default: the style)")
+    ap.add_argument("--data", default=None, help="dataset the run was trained on (default: the style)")
+    ap.add_argument("--run", default=None, help="training run to export (default: the dataset name)")
     ap.add_argument("--checkpoint", default="best.pt")
-    ap.add_argument("--label", default="Chopin (AI)")
+    ap.add_argument("--label", default=None, help="name shown in the app's Music menu")
     args = ap.parse_args()
-    args.run = args.run or args.style
+    args.data = args.data or args.style
+    args.run = args.run or args.data
+    if not args.label:
+        args.label = {"chopin": "Chopin (AI)", "romantic": "Romantic (AI)"}.get(args.data) or args.data.replace("-", " ").title().replace("Preludes", "Préludes") + " (AI)"
 
     run = os.path.join(ROOT, "out", args.run)
     path = os.path.join(run, args.checkpoint)
@@ -49,7 +53,11 @@ def main():
     step = Step(model).eval()
 
     L, H, Dh = cfg.n_layer, cfg.n_head, cfg.d_model // cfg.n_head
-    idx = torch.tensor([[tokens.BOS, tokens.TOK["STYLE_chopin"], tokens.TOK["LEVEL_6"], tokens.TOK["KEY_0"], tokens.TOK["METER_4_4"]]])
+    meta = json.load(open(os.path.join(ROOT, "data", args.data, "meta.json"), encoding="utf-8"))
+    if cfg.vocab_size != len(tokens.VOCAB):
+        sys.exit("This model uses the older token format 2. Fine-tune it once to upgrade it: "
+                 f"python prepare_data.py, then python train.py --data {args.data} --init-from {args.run} --run {args.run}-v3")
+    idx = torch.tensor([[tokens.BOS, tokens.TOK["STYLE_" + meta.get("style", "chopin")], tokens.TOK["LEVEL_6"], tokens.TOK["KEY_0"], tokens.TOK["METER_4_4"]]])
     pk = torch.zeros(L, 1, H, 0, Dh)
     pv = torch.zeros(L, 1, H, 0, Dh)
 
@@ -84,11 +92,11 @@ def main():
     if worst > 1e-2:
         sys.exit("The exported model doesn't match PyTorch closely enough; please report this.")
 
-    meta = json.load(open(os.path.join(ROOT, "data", args.style, "meta.json"), encoding="utf-8"))
     levels = json.load(open(os.path.join(ROOT, "levels.json"), encoding="utf-8"))
     info = {
         "name": args.run, "label": args.label, "style": meta.get("style", "chopin"),
         "config": cfg.to_dict(), "vocab": tokens.VOCAB, "levels": levels,
+        "format": tokens.FORMAT, "context": bool(meta.get("context")),
         "level_counts": meta["level_counts"], "meters_by_level": meta["meters_by_level"],
         "orig_keys": meta.get("orig_keys", {}),
         "trained_steps": state["step"], "val_loss": state["best"],
@@ -97,7 +105,8 @@ def main():
     with open(os.path.join(exp, "model.json"), "w", encoding="utf-8") as f:
         json.dump(info, f)
     mb = os.path.getsize(onnx_path) / 1e6
-    print(f"Exported to {exp} ({mb:.1f} MB).\nNext: python install_model.py --run {args.run}")
+    extra = "" if args.data == args.style else f" --data {args.data}"
+    print(f"Exported to {exp} ({mb:.1f} MB).\nNext: python evaluate.py --run {args.run}{extra}, then python install_model.py --run {args.run}")
 
 
 if __name__ == "__main__":

@@ -6,6 +6,14 @@
  * bar length) is removed before sampling. The model supplies the style; the rules guarantee the level.
  * Level 11 is the Free level: only notation limits.
  *
+ * Better music:
+ *   - Context (format 3 models): each stave is written as the continuation of the previous one
+ *     (prompt: header CTX <previous 4 bars> NEXT), so ideas carry over from stave to stave.
+ *   - Best of N: several candidates are written and the one the model itself finds most natural
+ *     (highest average log-probability, ignoring the level masks) is kept. A near-copy of the
+ *     previous stave is penalised so the music keeps moving.
+ *   - "feel" presets set the temperature, top-p and N (focused, balanced, adventurous).
+ *
  * Times inside are in ticks (24 per quarter note). Phrases sent to the app use quarter notes.
  * Models live in models/<name>/ with model.onnx and model.json (written by export_onnx.py).
  */
@@ -30,6 +38,13 @@ const REST_SIZES = [48, 24, 16, 12, 8, 6, 4, 3];
 const MARKS = [['rh', 0, 'RH'], ['rh', 1, 'RH2'], ['lh', 0, 'LH'], ['lh', 1, 'LH2']];
 const MAX_GRACE = 6, MAX_ONSETS_PER_BAR = 24;
 const ALL_METERS = ['2/4', '3/4', '4/4', '2/2', '3/2', '6/4', '3/8', '6/8', '9/8', '12/8'];
+const FEELS = {
+  focused: { temperature: 0.8, topP: 0.9, best: 6 },
+  balanced: { temperature: 0.9, topP: 0.93, best: 4 },
+  adventurous: { temperature: 1.0, topP: 0.97, best: 2 }
+};
+const ENV_BEST = Number(process.env.FLOWSTAVE_BEST_OF) || 0;
+const BODY_TOKEN = /^(BAR|POS_\d+|RH2?|LH2?|GR|DUR_\d+|NOTE_\d+_-?\d)$/;
 
 class Model {
   constructor(dir) {
@@ -59,6 +74,9 @@ class Model {
       else if (t.startsWith('METER_')) this.meterTok[t.slice(6).replace('_', '/')] = i;
     });
     this.noteIds = [...this.note.keys()];
+    this.useCtx = this.tok.CTX != null && this.tok.NEXT != null && !!this.info.context;
+    this.styleTok = this.tok['STYLE_' + (this.info.style || 'chopin')];
+    if (this.styleTok == null) throw new Error(`unknown style "${this.info.style}"`);
     this.session = null;
     this.recent = [];
   }
@@ -71,8 +89,8 @@ class Model {
   publicInfo() {
     return {
       name: this.name, label: this.label,
-      levels: this.levels.map(l => ({ level: l.level, title: l.title })).concat([{ level: 11, title: this.free.title }]),
-      trainedSteps: this.info.trained_steps, data: this.info.data
+      levels: this.levels.map(l => ({ level: l.level, title: l.title })).concat([{ level: 11, title: this.free.title.replace(/Chopin/g, this.label.replace(/\s*\(.*\)\s*$/, '')) }]),
+      trainedSteps: this.info.trained_steps, data: this.info.data, context: this.useCtx
     };
   }
 
@@ -101,33 +119,77 @@ class Model {
     return k != null ? Number(k) : Math.round(Math.random() * 2 * lv.maxFifths) - lv.maxFifths;
   }
 
-  // level 1..10, or 11 for the Free level
+  // Turn a context string from the app ("12,40,7,...", the body of the previous stave) into token ids.
+  parseCtx(ctx, fifths, meter) {
+    if (!this.useCtx || !ctx) return null;
+    const ids = (Array.isArray(ctx) ? ctx : String(ctx).split(',')).map(Number);
+    if (!ids.length || ids.length > 700) return null;
+    let bars = 0;
+    for (const id of ids) {
+      const t = Number.isInteger(id) ? this.vocab[id] : null;
+      if (!t || !BODY_TOKEN.test(t)) return null;
+      if (t === 'BAR') bars++;
+    }
+    if (this.vocab[ids[0]] !== 'BAR' || bars !== 4) return null;
+    return { ids, fifths, meter };
+  }
+
+  // level 1..10, or 11 for the Free level.
+  // opts: fifths, meter, ctx (from parseCtx), feel, temperature, topP, best
   async generate(level, opts = {}) {
     await this.load();
     const free = level === 11;
     const lv = free ? this.free : this.levels[Math.max(0, Math.min(this.levels.length - 1, level - 1))];
     const condTok = free ? 'LEVEL_free' : 'LEVEL_' + this.condLevel(level);
-    opts = Object.assign({}, opts);  // ignore a requested key or meter this level doesn't allow
+    opts = Object.assign({}, FEELS[opts.feel] || FEELS.balanced, opts);  // ignore a requested key or meter this level doesn't allow
     if (opts.fifths != null && !(Math.abs(opts.fifths) <= lv.maxFifths)) delete opts.fifths;
     if (opts.meter != null && !(lv.meters.includes(opts.meter) && this.meterTok[opts.meter] != null)) delete opts.meter;
+    const best = Math.max(1, Math.min(8, ENV_BEST || opts.best || 1));
     for (let attempt = 0; attempt < 5; attempt++) {
       const fifths = opts.fifths != null ? opts.fifths : free ? this.pickKey(lv) : Math.round(Math.random() * 2 * lv.maxFifths) - lv.maxFifths;
       const meter = opts.meter || this.pickMeter(level, lv);
-      const seq = await this.sample(lv, condTok, fifths, meter, opts);
-      if (!seq) continue;
-      const ph = this.toPhrase(seq, lv, fifths, meter);
-      if (!ph) continue;
-      const sig = JSON.stringify(ph.rh.map(e => e.notes.map(n => n.d)));
-      if (this.recent.includes(sig)) continue;
-      this.recent.push(sig); if (this.recent.length > 40) this.recent.shift();
-      ph.model = this.name; ph.level = level;
+      const ctx = opts.ctx && opts.ctx.fifths === fifths && opts.ctx.meter === meter ? opts.ctx.ids : null;
+      let pick = null;
+      for (let c = 0; c < best; c++) {
+        const r = await this.sample(lv, condTok, fifths, meter, opts, ctx);
+        if (!r) continue;
+        const ph = this.toPhrase(r.body, lv, fifths, meter);
+        if (!ph) continue;
+        const sig = JSON.stringify(ph.rh.map(e => e.notes.map(n => n.d)));
+        if (this.recent.includes(sig)) continue;
+        let score = r.score;
+        if (ctx) {  // don't just repeat the previous stave
+          const same = this.sameBars(r.body, ctx);
+          if (same >= 3) continue;
+          score -= 0.15 * same;
+        }
+        if (!pick || score > pick.score) pick = { ph, sig, score, body: r.body };
+      }
+      if (!pick) continue;
+      this.recent.push(pick.sig); if (this.recent.length > 40) this.recent.shift();
+      const ph = pick.ph;
+      ph.model = this.name; ph.level = level; ph.score = Math.round(pick.score * 1000) / 1000;
+      if (this.useCtx) ph.ctx = pick.body.filter(id => id !== this.tok.EOS).join(',');
+      ph.continued = !!ctx;
       return ph;
     }
     throw new Error('could not generate a valid phrase');
   }
 
+  // How many of the 4 bars are exactly the same as in the context.
+  sameBars(body, ctx) {
+    const split = ids => {
+      const bars = []; let cur = null;
+      for (const id of ids) { if (id === this.tok.BAR) { cur = []; bars.push(cur); } else if (cur && id !== this.tok.EOS) cur.push(id); }
+      return bars.map(b => b.join(','));
+    };
+    const a = split(body), b = split(ctx);
+    let n = 0; for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] === b[i]) n++;
+    return n;
+  }
+
   /* ---------- constrained sampling ---------- */
-  async sample(lv, condTok, fifths, meter, opts) {
+  async sample(lv, condTok, fifths, meter, opts, ctx) {
     const { n_layer: L, n_head: H, d_model: D, max_len: maxLen } = this.cfg;
     const Dh = D / H, V = this.vocab.length, T = this.tok;
     const temp = opts.temperature || 0.95, topP = opts.topP || 0.95;
@@ -135,8 +197,9 @@ class Model {
     const bt = barTicks(meter);
     const okPos = []; for (let p = 0; p < bt; p++) okPos[p] = lv.grids.some(g => p % g === 0);
     const minLH = !lv.lhD ? 0 : lv.handsTogether ? 4 : 2;  // both hands take part from level 2 up
-    const prompt = [T.BOS, T['STYLE_' + (this.info.style || 'chopin')], T[condTok], T['KEY_' + fifths], this.meterTok[meter]];
+    const prompt = [T.BOS, this.styleTok, T[condTok], T['KEY_' + fifths], this.meterTok[meter]];
     if (prompt.some(x => x == null)) throw new Error('model vocabulary does not match');
+    if (ctx && prompt.length + ctx.length + 2 + 250 < maxLen) prompt.push(T.CTX, ...ctx, T.NEXT);
 
     const s = { bars: 0, pos: -1, onsets: 0, phase: 'BAR', mark: -1, hand: null, notes: [], grace: 0, acc: 0, rhNotes: 0, lhNotes: 0, rhAtPos: false, len: prompt.length };
     const allowed = new Uint8Array(V);
@@ -221,6 +284,7 @@ class Model {
     let input = prompt.slice();
     const seq = prompt.slice();
     const probs = new Float64Array(V);
+    let logp = 0, nTok = 0;
     for (let step = 0; step < maxLen - prompt.length; step++) {
       const idx = new ort.Tensor('int64', BigInt64Array.from(input.map(BigInt)), [1, input.length]);
       const out = await this.session.run({ idx, past_k: pk, past_v: pv });
@@ -238,8 +302,12 @@ class Model {
       for (let k = 0; k < order.length; k++) { acc += probs[order[k]] / sum; if (acc >= topP) { cut = k + 1; break; } }
       let r = Math.random() * order.slice(0, cut).reduce((t, i) => t + probs[i], 0), pick = order[0];
       for (let k = 0; k < cut; k++) { r -= probs[order[k]]; if (r <= 0) { pick = order[k]; break; } }
+      let all = -Infinity;  // the model's own (unmasked) probability of the chosen token, for best-of-N
+      for (let i = 0; i < V; i++) if (logits[i] > all) all = logits[i];
+      let z = 0; for (let i = 0; i < V; i++) z += Math.exp(logits[i] - all);
+      logp += logits[pick] - all - Math.log(z); nTok++;
       seq.push(pick);
-      if (pick === T.EOS) return seq;
+      if (pick === T.EOS) return { body: seq.slice(prompt.length), score: logp / nTok };
       advance(pick);
       input = [pick];
     }
@@ -329,6 +397,8 @@ function loadModels(dir) {
 function generate(name, level, count = 1, opts = {}) {
   const m = models.get(name);
   if (!m) return Promise.reject(new Error(`no model named "${name}"`));
+  opts = Object.assign({}, opts);
+  if (typeof opts.ctx === 'string') opts.ctx = m.parseCtx(opts.ctx, opts.fifths, opts.meter);
   const job = queue.then(async () => {
     const out = [];
     let o = Object.assign({}, opts);
@@ -336,6 +406,7 @@ function generate(name, level, count = 1, opts = {}) {
       const ph = await m.generate(level, o);
       out.push(ph);
       o = Object.assign({}, o, { fifths: ph.fifths, meter: ph.ts });  // one request = one key and meter
+      if (ph.ctx) o.ctx = m.parseCtx(ph.ctx, ph.fifths, ph.ts);        // and one continuous line of music
     }
     return out;
   });
@@ -343,4 +414,4 @@ function generate(name, level, count = 1, opts = {}) {
   return job;
 }
 
-module.exports = { loadModels, generate, models, Model };
+module.exports = { loadModels, generate, models, Model, FEELS };

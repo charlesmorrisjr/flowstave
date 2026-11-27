@@ -69,7 +69,7 @@ Safari only lets a page keep the screen awake over HTTPS. Over plain `http://` t
   3. Copy `rootCA.pem` (run `mkcert -CAROOT` to find its folder) to the iPad, for example by AirDrop. Install it in Settings > General > VPN & Device Management. Then turn it on in Settings > General > About > Certificate Trust Settings.
   4. Restart the server. It switches to `https://` automatically. Open the new `https://` address on the iPad and **Keep screen awake** will appear.
 
-## AI music (Chopin)
+## AI music (Chopin and Romantic)
 
 The **Music** menu under the sheet music chooses where new staves come from:
 
@@ -80,7 +80,19 @@ The **Music** menu under the sheet music chooses where new staves come from:
   - a singable melody built from a motif and its repeat, with leaning notes (appoggiaturas) and syncopation from level 6
   - thirds and sixths under the melody at higher levels; at level 10 and in Free, octave climaxes, an inner voice and grace notes
   - warm keys such as A, D, E, A♭ and E♭ major, limited by what each level allows
-- **Chopin (AI)**, or any other installed model: staves written by a model trained on Chopin. The current level's rules still apply exactly.
+- **Chopin (AI)**, **Romantic (AI)** or any other installed model: staves written by a trained model. The current level's rules still apply exactly.
+
+With models made by this version of the training kit, **each stave continues the one before it**: the app sends the previous stave back to the server, so a theme can be answered, repeated or developed instead of every stave starting fresh. The line of music restarts when you press New music or change level. Older models still work, without this.
+
+**AI feel** (shown when an AI model is selected) chooses how the model writes:
+
+| Feel | What it does |
+|---|---|
+| Focused | Plays it safe: picks the best of 6 candidates, with less randomness. Closest to the composer, sometimes plainer. |
+| Balanced (default) | Best of 4, moderate randomness. |
+| Adventurous | Best of 2, more randomness: more surprises, more odd moments. |
+
+"Best" means the candidate the model itself rates most natural. A candidate that just repeats the previous stave is penalised.
 
 Models live in `models/<name>/` (`model.onnx` + `model.json`). To create and install one, follow `ai/README.md` in the project, which ends with `python install_model.py`. Restart the server after installing a model; its window lists the models it found.
 
@@ -102,13 +114,21 @@ The server writes a few staves ahead, so you never wait. If a stave isn't ready 
 
 Press **Listen** to hear the two staves on screen, starting with the one the cursor is on. Playback uses the BPM shown next to the button.
 
+**Expressive playback** (on by default) plays it the way a pianist might:
+- **Dynamics:** each stave swells towards its middle and relaxes at the end; the top line of the right hand sings over softer inner notes, the bass is a little firmer than the rest of the left hand, and downbeats get a slight accent.
+- **Rubato:** the tempo moves forward a little in the middle of each stave and broadens into its end, more so at the end of the second stave. The cursor follows.
+- **Pedalling:** the pedal changes when the harmony or the bass note changes, rather than every bar. Fast right-hand notes are kept clearer.
+- **Touch:** the melody sounds a few milliseconds before the accompaniment, and wide chords are rolled.
+
+Untick it for strict time and even touch.
+
 ## Piano sound
 
 Listen, and the sound for on-screen and computer keys, use a sampled concert grand: the **Salamander Grand Piano** (a Yamaha C5 recorded by Alexander Holm, licensed CC BY 3.0). `npm install` downloads two velocity layers, about 11 MB, and the server serves them, so no internet is needed while you practise.
 
 - **Melody and accompaniment:** the melody plays from the louder layer and the accompaniment from the softer one, so the right hand sings over the left.
 - **Loading:** the samples load the first time you tap the page, which takes a second or two on home Wi-Fi.
-- **Pedal when listening:** each note rings until the end of its bar, as a pianist would pedal. Untick it for a dry, exact sound.
+- **Pedal when listening:** notes ring on until the next pedal change: when the harmony changes with Expressive playback, or at the end of each bar without it. Untick it for a dry, exact sound.
 - **Piano: Simple synth** switches back to the old synthesized sound.
 
 ## Settings
@@ -120,6 +140,7 @@ Set these before `npm start`. On Mac/Linux use `PORT=3001 npm start`; on Windows
 | `PORT` | `3000` | Port the server listens on. |
 | `HOST` | `0.0.0.0` | Network address to listen on (all by default). |
 | `MIDI_FILTER` | (none) | Only use MIDI inputs whose name contains this text, e.g. `MIDI_FILTER=yamaha`. |
+| `FLOWSTAVE_BEST_OF` | (from AI feel) | Number of candidate staves the AI writes for each one shown, 1–8, overriding the AI feel setting. Higher is slower. |
 
 ## Troubleshooting
 

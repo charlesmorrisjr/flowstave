@@ -1,8 +1,12 @@
-"""Tokenizer (format 2): phrase <-> token sequence.
+"""Tokenizer (format 3): phrase <-> token sequence.
 
-    BOS STYLE_x LEVEL_n KEY_f METER_m
+    BOS STYLE_x LEVEL_n KEY_f METER_m  [CTX <the 4 bars before> NEXT]
     BAR  POS_p  RH [GR NOTE ...] DUR_x NOTE_d_a ...   RH2 ...   LH ...   LH2 ...   POS_p ...
     ... EOS
+
+Format 3 adds the optional context: the 4 bars that came just before, so the model learns how music
+continues (a theme answered, repeated or developed) instead of writing every stave from nothing.
+New tokens are added at the end of the vocabulary, so format 2 models keep their token numbers.
 
 METER_6_8 means 6/8. POS_p is the start in ticks (24 per quarter) within the bar. RH/LH mark the upper voice of each
 staff, RH2/LH2 the lower voice. GR introduces grace notes played just before the note. Notes in a
@@ -10,8 +14,10 @@ chord are in ascending order. Rests are not tokens: gaps become rests when the p
 """
 from .music import DURS, D_MIN, D_MAX, METERS, bar_ticks
 
-FORMAT = 2
-STYLES = ["chopin", "yiruma", "beethoven", "mozart", "debussy", "custom"]
+FORMAT = 3
+STYLES = ["chopin", "yiruma", "beethoven", "mozart", "debussy", "custom"]  # format 2 order (don't reorder)
+NEW_STYLES = ["romantic"]
+STYLE_CHOICES = STYLES + NEW_STYLES
 N_LEVELS = 11
 MAX_POS = 144  # longest bar: 12/8, 6/4, 3/2
 HAND_TOKENS = [("rh", 0, "RH"), ("rh", 1, "RH2"), ("lh", 0, "LH"), ("lh", 1, "LH2")]
@@ -27,17 +33,37 @@ def build_vocab():
     v += [f"POS_{p}" for p in range(MAX_POS)]
     v += [f"DUR_{d}" for d in DURS]
     v += [f"NOTE_{d}_{a}" for d in range(D_MIN, D_MAX + 1) for a in (-1, 0, 1)]
+    v += [f"STYLE_{s}" for s in NEW_STYLES] + ["CTX", "NEXT"]  # format 3 additions
     return v
 
 
 VOCAB = build_vocab()
 TOK = {t: i for i, t in enumerate(VOCAB)}
 PAD, BOS, EOS = TOK["PAD"], TOK["BOS"], TOK["EOS"]
+CTX, NEXT = TOK["CTX"], TOK["NEXT"]
+FORMAT2_VOCAB = len(VOCAB) - len(NEW_STYLES) - 2
 
 
-def encode(ph, level, style="chopin"):
-    """level: 1..11 or "free"."""
+def fits(ph):
+    """True if every note is on the piano and can be written as a token."""
+    return all(f"NOTE_{d}_{a}" in TOK for h in ("rh", "lh") for e in ph[h]
+               for d, a in list(e["notes"]) + list(e.get("grace") or []))
+
+
+def encode(ph, level, style="chopin", ctx=None):
+    """level: 1..11 or "free". ctx: the phrase just before (same key and meter), or None."""
     seq = [BOS, TOK[f"STYLE_{style}"], TOK[f"LEVEL_{level}"], TOK[f"KEY_{ph['fifths']}"], TOK["METER_" + ph["meter"].replace("/", "_")]]
+    if ctx is not None:
+        seq.append(CTX)
+        seq.extend(encode_bars(ctx))
+        seq.append(NEXT)
+    seq.extend(encode_bars(ph))
+    seq.append(EOS)
+    return seq
+
+
+def encode_bars(ph):
+    seq = []
     bt = bar_ticks(ph["meter"])
     for b in range(ph["bars"]):
         seq.append(TOK["BAR"])
@@ -58,12 +84,15 @@ def encode(ph, level, style="chopin"):
                     seq.extend(TOK[f"NOTE_{d}_{a}"] for d, a in e["grace"])
                 seq.append(TOK[f"DUR_{e['dur']}"])
                 seq.extend(TOK[f"NOTE_{d}_{a}"] for d, a in e["notes"])
-    seq.append(EOS)
     return seq
 
 
 def decode(seq):
-    """Token ids -> phrase dict (best effort; ignores anything malformed)."""
+    """Token ids -> phrase dict (best effort; ignores anything malformed). A context part is skipped."""
+    if CTX in seq and NEXT in seq:
+        a, b = seq.index(CTX), seq.index(NEXT)
+        if a < b:
+            seq = list(seq[:a]) + list(seq[b + 1:])
     ph = {"meter": "4/4", "fifths": 0, "bars": 0, "rh": [], "lh": []}
     bar, pos, cur, mode = -1, 0, None, None
     marks = {m: (h, v) for h, v, m in HAND_TOKENS}

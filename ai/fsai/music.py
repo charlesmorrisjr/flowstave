@@ -300,6 +300,7 @@ def piece_phrases(bars, stride=2, length=4):
                     ph[hand].append(dict(e, t=k * bt + e["t"]))
         if empty_rh > 1 or not ph["rh"]:
             continue
+        ph["bar0"] = i  # bar number in the piece (used to pair each phrase with the one before)
         out.append(ph)
     return out
 
@@ -382,12 +383,17 @@ def fit_octaves(ph, rh_target=32, lh_target=21):
     return out
 
 
-def variants(ph):
-    """The original phrase plus simplified versions (for the easier levels)."""
+def variant_list(ph):
+    """The original phrase plus simplified versions (for the easier levels), always in the same
+    order (None where a version is empty), so the same version of two phrases can be paired."""
     mb, bo = melody_bass(ph), beats_only(ph)
     simple = [one_voice(ph), mb, simple_rhythm(ph), simple_rhythm(mb), right_hand_only(simple_rhythm(mb)), bo, right_hand_only(bo)]
     out = [ph] + simple + [fit_octaves(v) for v in simple[1:]]
-    return [v for v in out if v["rh"]]
+    return [v if v["rh"] else None for v in out]
+
+
+def variants(ph):
+    return [v for v in variant_list(ph) if v]
 
 
 # ---------------------------------------------------------------- transposition
